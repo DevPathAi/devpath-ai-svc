@@ -1,6 +1,8 @@
 # CLAUDE.md — devpath-ai-svc
 
-> AI 서비스 — Claude 오케스트레이션, 코드 리뷰 워커, FinOps (2nd Aha)
+> AI 서비스 — AI Gateway, 코드 리뷰 워커, FinOps (2nd Aha)
+>
+> **현재 구현 상태(2026-06-19)**: 이 레포의 dev 빌드는 Ollama gateway다. 현재 구현 API는 `POST /ai/embed`, `POST /ai/path/generate`이며, 운영 목표는 Claude 등 provider 교체 가능한 AI Gateway다.
 
 ## 🚫 절대 조건 — 모든 작업에 예외 없이 적용
 
@@ -27,7 +29,7 @@
 - 실행: `./gradlew bootRun` (포트 8080)
 - 스택: Spring Boot 4.0.7 · Java 21 · Gradle (Kotlin DSL)
 - 패키지: `ai.devpath.aigw` / 메인: `AiApplication`
-- 모든 Claude 호출은 이 서비스를 경유한다. ANTHROPIC_API_KEY는 환경 변수로만 주입하고 절대 커밋하지 않는다.
+- 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_CHAT_MODEL`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
 
 > 이 레포는 [devpath-svc-template](https://github.com/DevPathAi/devpath-svc-template)에서 파생되었다.
 
@@ -35,15 +37,15 @@
 
 | 모듈 | 역할 |
 |------|------|
-| ai-gateway | Claude API 단일 진입점 — 비용 추적·Semantic Cache·Kill-switch |
-| review-worker | Kafka Consumer 비동기 AI 코드 리뷰 |
-| finops | 토큰 사용량/비용 집계 |
+| ai-gateway | 현재 dev: Ollama embed/path 생성 위임 · 운영 목표: Claude 등 provider 단일 진입점 |
+| review-worker | Kafka Consumer 비동기 AI 코드 리뷰 (목표) |
+| finops | 토큰 사용량/비용 집계 (목표) |
 ## 공통 규칙
 
 - Git: Conventional Commits — [documents/09_Git_규칙_정의서](https://github.com/DevPathAi/documents/blob/main/09_Git_규칙_정의서.md)
 - 코드 리뷰: [documents/12_코드_리뷰_규칙](https://github.com/DevPathAi/documents/blob/main/12_코드_리뷰_규칙.md)
 - 테스트 전략: [documents/11_테스트_전략서](https://github.com/DevPathAi/documents/blob/main/11_테스트_전략서.md)
-- 비밀값(Claude API 키·OAuth·결제 키)은 절대 커밋하지 않는다.
+- 비밀값(운영 LLM provider 키·OAuth·결제 키)은 절대 커밋하지 않는다.
 - 진행 현황은 `docs/project-management/`에 기록 → [workflow-dashboard](https://devpathai.github.io/workflow-dashboard/)가 동기화.
 
 
