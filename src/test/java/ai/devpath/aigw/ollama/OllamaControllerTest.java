@@ -220,15 +220,30 @@ class OllamaControllerTest {
         "strengthConcepts", List.of("Java"),
         "weaknessConcepts", List.of("Spring MVC")
     ));
-    MvcResult emptyStrengths = post("/ai/path/generate", Map.of(
+    MvcResult blankConcept = post("/ai/path/generate", Map.of(
         "track", "BACKEND_SPRING",
         "diagnosedLevel", "JUNIOR",
-        "strengthConcepts", List.of(),
+        "strengthConcepts", List.of(""),
         "weaknessConcepts", List.of("Spring MVC")
     ));
 
     assertEquals(HttpStatus.BAD_REQUEST.value(), blankTrack.getResponse().getStatus());
-    assertEquals(HttpStatus.BAD_REQUEST.value(), emptyStrengths.getResponse().getStatus());
+    assertEquals(HttpStatus.BAD_REQUEST.value(), blankConcept.getResponse().getStatus());
+  }
+
+  @Test
+  void generatePathAllowsEmptyConceptLists() throws Exception {
+    OLLAMA.enqueue(jsonResponse(chatBody(validPathContent())));
+
+    MvcResult response = post("/ai/path/generate", Map.of(
+        "track", "BACKEND_SPRING",
+        "diagnosedLevel", "JUNIOR",
+        "strengthConcepts", List.of(),
+        "weaknessConcepts", List.of()
+    ));
+
+    assertEquals(HttpStatus.OK.value(), response.getResponse().getStatus());
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
   }
 
   private MvcResult post(String path, Map<String, ?> body) throws Exception {
