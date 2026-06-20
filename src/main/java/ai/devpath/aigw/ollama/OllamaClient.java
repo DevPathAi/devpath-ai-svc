@@ -19,6 +19,8 @@ import tools.jackson.databind.json.JsonMapper;
 public class OllamaClient {
 
   private static final int EMBEDDING_DIMENSIONS = 768;
+  private static final int TASKS_PER_MILESTONE = 3;
+  private static final List<String> TASK_TYPES = List.of("READ", "PRACTICE", "QUIZ");
 
   private final RestClient restClient;
   private final JsonMapper jsonMapper;
@@ -131,9 +133,15 @@ public class OllamaClient {
           || isBlank(milestone.expectedOutcome()) || milestone.tasks() == null || milestone.tasks().isEmpty()) {
         throw new OllamaContractException("Ollama milestone 응답 필수 필드가 없습니다");
       }
+      if (milestone.tasks().size() < TASKS_PER_MILESTONE) {
+        throw new OllamaContractException("Ollama milestone tasks는 최소 3개가 필요합니다");
+      }
       for (PathGenerateResponse.Task task : milestone.tasks()) {
         if (task.orderNum() <= 0 || isBlank(task.taskType()) || isBlank(task.title())) {
           throw new OllamaContractException("Ollama task 응답 필수 필드가 없습니다");
+        }
+        if (!TASK_TYPES.contains(task.taskType())) {
+          throw new OllamaContractException("Ollama task_type은 READ/PRACTICE/QUIZ 중 하나여야 합니다");
         }
       }
     }
@@ -143,8 +151,8 @@ public class OllamaClient {
   private PathGenerateResponse normalize(PathGenerateResponse response) {
     List<PathGenerateResponse.Milestone> milestones = new ArrayList<>();
     for (PathGenerateResponse.Milestone milestone : response.milestones()) {
-      List<PathGenerateResponse.Task> tasks = milestone.tasks().size() > 3
-          ? List.copyOf(milestone.tasks().subList(0, 3))
+      List<PathGenerateResponse.Task> tasks = milestone.tasks().size() > TASKS_PER_MILESTONE
+          ? List.copyOf(milestone.tasks().subList(0, TASKS_PER_MILESTONE))
           : List.copyOf(milestone.tasks());
       milestones.add(new PathGenerateResponse.Milestone(
           milestone.weekNum(),
@@ -171,7 +179,7 @@ public class OllamaClient {
     return """
         You generate a personalized 12-week software learning path.
         Return only JSON matching the provided schema.
-        Each milestone must include exactly practical, concise tasks.
+        Each milestone must include exactly 3 practical, concise tasks.
         Do not include markdown fences or commentary.
         """;
   }
