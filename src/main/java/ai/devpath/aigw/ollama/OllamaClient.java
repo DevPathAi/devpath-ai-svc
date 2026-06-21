@@ -70,16 +70,15 @@ public class OllamaClient {
   }
 
   public PathGenerateResponse generatePath(PathGenerateRequest request) {
-    OllamaChatResponse response = callChat(request);
     try {
-      return parseAndNormalize(response);
+      return callAndParse(request);
     } catch (OllamaContractException firstFailure) {
-      try {
-        return parseAndNormalize(callChat(request));
-      } catch (OllamaContractException secondFailure) {
-        throw secondFailure;
-      }
+      return callAndParse(request);
     }
+  }
+
+  private PathGenerateResponse callAndParse(PathGenerateRequest request) {
+    return parseAndNormalize(callChat(request));
   }
 
   private OllamaChatResponse callChat(PathGenerateRequest request) {

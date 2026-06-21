@@ -37,7 +37,7 @@
 - 실행: `./gradlew bootRun` (포트 8080)
 - 스택: Spring Boot 4.0.7 · Java 21 · Gradle (Kotlin DSL)
 - 패키지: `ai.devpath.aigw` / 메인: `AiApplication`
-- 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_GEN_MODEL`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
+- 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_GEN_MODEL`, `OLLAMA_TIMEOUT`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
 
 > 이 레포는 [devpath-svc-template](https://github.com/DevPathAi/devpath-svc-template)에서 파생되었다.
 

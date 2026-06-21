@@ -35,6 +35,7 @@
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_GEN_MODEL=qwen2.5:7b
+OLLAMA_TIMEOUT=PT8S
 ```
 
 로컬에 Ollama가 없다면 host에 설치하거나 Docker 기반 런타임을 사용합니다. 모델은 최초 1회 내려받습니다.
@@ -42,6 +43,26 @@ OLLAMA_GEN_MODEL=qwen2.5:7b
 ```bash
 ollama pull nomic-embed-text
 ollama pull qwen2.5:7b
+```
+
+수동 smoke:
+
+```bash
+./gradlew bootRun
+
+curl -s -X POST http://localhost:8080/ai/embed \
+  -H 'Content-Type: application/json' \
+  -d '{"texts":["Spring MVC controller test"]}'
+
+curl -s -X POST http://localhost:8080/ai/path/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "track":"BACKEND_SPRING",
+    "diagnosedLevel":"JUNIOR",
+    "strengthConcepts":["Java"],
+    "weaknessConcepts":["Spring MVC"],
+    "goal":"취업 준비"
+  }'
 ```
 
 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로 주입하며 **절대 커밋하지 않습니다** ([documents/10_환경_설정_템플릿](https://github.com/DevPathAi/documents/blob/main/10_환경_설정_템플릿.md)).
