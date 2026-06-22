@@ -37,7 +37,7 @@
 - 실행: `./gradlew bootRun` (포트 8080)
 - 스택: Spring Boot 4.0.7 · Java 21 · Gradle (Kotlin DSL)
 - 패키지: `ai.devpath.aigw` / 메인: `AiApplication`
-- 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_GEN_MODEL`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
+- 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_GEN_MODEL`, `OLLAMA_TIMEOUT`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
 
 > 이 레포는 [devpath-svc-template](https://github.com/DevPathAi/devpath-svc-template)에서 파생되었다.
 
@@ -63,3 +63,11 @@
 - 서브에이전트는 **부여된 단일 Task의 명세만** 구현한다. 추측·즉흥(improvise) 금지.
 - 위임 결과는 **컨트롤러가 직접 검증**한다(커밋 로그·파일 구조·테스트 실행). 완료 보고를 그대로 신뢰하지 않는다.
 - 범위 이탈 산출물은 수용하지 말고, 미푸시면 정상 지점으로 reset 후 플랜대로 재구현한다.
+
+## 📚 study-documents 연계 (상시 참조)
+
+- 마스터 카탈로그: [documents/41_study-documents_연계_카탈로그.md](https://github.com/DevPathAi/documents/blob/main/41_study-documents_연계_카탈로그.md)
+- 이 레포 관련 자산:
+  - 스킬: `/devpath-skillpack:spring-setup` · `:domain-modeler` · `:code-reviewer` · `:complexity-analyzer` · `:test-coverage-booster` · `:error-detective` · `:postgres-mcp-tuner` · `:brooks-lint-arch`
+  - Sample Codes: Spring Boot 4 JPA·분산락·SSE·Audit·WebClient (study-documents `Sample Codes/🐤 Spring_Boot_4_*`)
+  - 가이드: CQRS·Query-port·MSA 디자인 패턴

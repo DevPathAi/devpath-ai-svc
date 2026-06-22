@@ -160,6 +160,19 @@ class OllamaControllerTest {
   }
 
   @Test
+  void generatePathRetriesEmptyContentOnceThenSucceeds() throws Exception {
+    OLLAMA.enqueue(jsonResponse(chatBody("")));
+    OLLAMA.enqueue(jsonResponse(chatBody(validPathContent())));
+
+    MvcResult response = post("/ai/path/generate", pathRequest());
+
+    assertEquals(HttpStatus.OK.value(), response.getResponse().getStatus());
+    assertTrue(response.getResponse().getContentAsString().contains("\"expectedOutcome\""));
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+  }
+
+  @Test
   void generatePathRejectsTooFewTasks() throws Exception {
     OLLAMA.enqueue(jsonResponse(chatBody(pathContentWithTasks(List.of(
         task(1, "READ", "Spring MVC 읽기", true),
@@ -209,6 +222,26 @@ class OllamaControllerTest {
     String body = response.getResponse().getContentAsString();
     assertTrue(body.contains("HTTP 상태코드 점검"));
     assertFalse(body.contains("추가 읽기"));
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+  }
+
+  @Test
+  void generatePathMapsOllama5xxToServiceUnavailable() throws Exception {
+    OLLAMA.enqueue(new MockResponse().setResponseCode(500).setBody("boom"));
+
+    MvcResult response = post("/ai/path/generate", pathRequest());
+
+    assertEquals(HttpStatus.SERVICE_UNAVAILABLE.value(), response.getResponse().getStatus());
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+  }
+
+  @Test
+  void generatePathMapsTimeoutToServiceUnavailable() throws Exception {
+    OLLAMA.enqueue(jsonResponse(chatBody(validPathContent())).setBodyDelay(1, TimeUnit.SECONDS));
+
+    MvcResult response = post("/ai/path/generate", pathRequest());
+
+    assertEquals(HttpStatus.SERVICE_UNAVAILABLE.value(), response.getResponse().getStatus());
     assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
   }
 
