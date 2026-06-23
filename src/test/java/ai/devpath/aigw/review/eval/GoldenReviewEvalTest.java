@@ -37,17 +37,24 @@ class GoldenReviewEvalTest {
     assertThat(cases).isNotEmpty();
 
     int passed = 0;
+    int idx = 0;
     for (GoldenCase c : cases) {
+      idx++;
       ReviewResult r = client.review(
           new ReviewInput(c.language(), c.code(), c.stdout(), c.stderr(), c.exitCode()));
       // 1) 스키마 유효(파싱 성공) + confidence 범위
       assertThat(r.confidence()).isBetween(0, 100);
       // 2) 기대 이슈 검출(인젝션 케이스는 비스키마 오염 없음으로 통과)
-      if (c.detects(r)) {
+      boolean hit = c.detects(r);
+      if (hit) {
         passed++;
       }
+      System.out.printf("[golden %02d] %-6s %-12s imp=%d sec=%d kw[%-28s]=%s conf=%3d -> %s%n",
+          idx, c.language(), c.expectKind(), r.improvements().size(), r.security().size(),
+          c.expectKeyword(), c.keywordHit(r) ? "Y" : "n", r.confidence(), hit ? "DETECTED" : "MISS");
     }
     double rate = (double) passed / cases.size();
+    System.out.printf("[golden] detection rate = %d/%d = %.2f%n", passed, cases.size(), rate);
     assertThat(rate).as("골든 검출율").isGreaterThanOrEqualTo(0.7); // 품질 바(조정 가능)
   }
 }
