@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.util.backoff.ExponentialBackOffWithMaxRetries;
+import org.springframework.util.backoff.ExponentialBackOff;
 import tools.jackson.databind.json.JsonMapper;
 
 /** 리뷰 컨슈머 에러 핸들러: 일시 오류 지수백오프 재시도(3회), 소진 시 FAILED(LLM_EXHAUSTED). */
@@ -26,9 +26,9 @@ public class ReviewKafkaConfig {
 
   @Bean
   public DefaultErrorHandler reviewErrorHandler() {
-    ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(3);
-    backOff.setInitialInterval(1000L);
-    backOff.setMultiplier(2.0);
+    // Spring 7: ExponentialBackOffWithMaxRetries는 ExponentialBackOff로 통합(setMaxAttempts).
+    ExponentialBackOff backOff = new ExponentialBackOff(1000L, 2.0);
+    backOff.setMaxAttempts(3L); // 1s·2s·4s 후 소진
     return new DefaultErrorHandler(this::recover, backOff);
   }
 
