@@ -42,7 +42,9 @@ public class ReviewPersistenceService {
     AiCodeReview r = reviews.findById(reviewId).orElseThrow();
     r.setStatus("DONE");
     r.setProvider(provider);
-    r.setConfidence(result.confidence());
+    // LLM이 스키마(integer)만 지키고 범위(0~100)를 벗어난 값을 줄 수 있다. DB CHECK(chk_ai_review_confidence)
+    // 위반으로 정상 리뷰 본문이 통째로 FAILED 되는 것을 막기 위해 [0,100]으로 클램프한다.
+    r.setConfidence(Math.max(0, Math.min(100, result.confidence())));
     r.setStrengths(toJson(result.strengths()));
     r.setImprovements(toJson(result.improvements()));
     r.setSecurity(toJson(result.security()));
