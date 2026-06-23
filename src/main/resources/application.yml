@@ -1,11 +1,35 @@
 spring:
   application:
     name: devpath-ai-svc
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/devpath}
+    username: ${DB_USER:devpath}
+    password: ${DB_PASSWORD:localdev}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    consumer:
+      group-id: devpath-ai-review
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 server:
   port: 8080
 
 devpath:
+  auth:
+    jwt-secret: ${JWT_SECRET:test-secret-please-change-min-32-bytes-long-0123456789}
+  sandbox:
+    base-url: ${SANDBOX_URI:http://localhost:8085}
+    timeout: ${SANDBOX_TIMEOUT:PT5S}
+  review:
+    provider: ${REVIEW_PROVIDER:mock}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     gen-model: ${OLLAMA_GEN_MODEL:qwen2.5:7b}
