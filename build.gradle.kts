@@ -35,6 +35,7 @@ dependencies {
 	implementation("org.springframework.kafka:spring-kafka")
 	implementation("org.springframework.boot:spring-boot-kafka")
 	implementation("ai.devpath:devpath-shared:0.0.1-SNAPSHOT")
+	implementation("com.anthropic:anthropic-java:2.34.0")
 	runtimeOnly("org.postgresql:postgresql")
 	compileOnly("org.projectlombok:lombok")
 	annotationProcessor("org.projectlombok:lombok")
@@ -55,5 +56,12 @@ dependencies {
 }
 
 tasks.withType<Test> {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		val groups = System.getProperty("groups")
+		if (groups.isNullOrBlank()) {
+			excludeTags("eval")
+		} else if (groups == "eval") {
+			includeTags("eval")
+		}
+	}
 }

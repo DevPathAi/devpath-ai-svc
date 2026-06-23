@@ -30,6 +30,8 @@ devpath:
     timeout: ${SANDBOX_TIMEOUT:PT5S}
   review:
     provider: ${REVIEW_PROVIDER:mock}
+    ollama-model: ${REVIEW_OLLAMA_MODEL:qwen2.5-coder:7b}
+    claude-model: ${REVIEW_CLAUDE_MODEL:claude-sonnet-4-6}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     gen-model: ${OLLAMA_GEN_MODEL:qwen2.5:7b}
