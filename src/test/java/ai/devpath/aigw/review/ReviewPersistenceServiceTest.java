@@ -18,7 +18,7 @@ class ReviewPersistenceServiceTest {
   @Test
   void aboveRangeConfidenceIsClampedTo100NotFailed() {
     long sid = System.nanoTime();
-    AiCodeReview pending = persistence.createPendingIfAbsent(sid, 5L, null).orElseThrow();
+    AiCodeReview pending = persistence.findOrCreatePending(sid, 5L, null);
 
     // LLM이 범위 밖(151) confidence를 줘도 정상 리뷰가 폐기되지 않고 클램프되어 DONE.
     persistence.finishDone(pending.getId(),
@@ -33,7 +33,7 @@ class ReviewPersistenceServiceTest {
   @Test
   void belowRangeConfidenceIsClampedTo0() {
     long sid = System.nanoTime();
-    AiCodeReview pending = persistence.createPendingIfAbsent(sid, 6L, null).orElseThrow();
+    AiCodeReview pending = persistence.findOrCreatePending(sid, 6L, null);
 
     persistence.finishDone(pending.getId(),
         new ReviewResult(-5, List.of(), List.of(), List.of()), "MOCK");
