@@ -1,6 +1,11 @@
 package ai.devpath.aigw.review;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.errors.AnthropicException;
+import com.anthropic.errors.AnthropicIoException;
+import com.anthropic.errors.AnthropicRetryableException;
+import com.anthropic.errors.InternalServerException;
+import com.anthropic.errors.RateLimitException;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.StructuredMessageCreateParams;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,11 +42,23 @@ public class ClaudeAiReviewClient implements AiReviewClient {
         .addUserMessage(prompts.userContent(input))
         .outputConfig(ReviewResult.class) // 응답을 ReviewResult 스키마로 제약(인젝션 방어 보강)
         .build();
-    return client.messages().create(params).content().stream()
-        .flatMap(cb -> cb.text().stream())
-        .map(typed -> typed.text())
-        .findFirst()
-        .orElseThrow(() -> new IllegalStateException("Claude review 응답이 비어 있습니다"));
+    try {
+      return client.messages().create(params).content().stream()
+          .flatMap(cb -> cb.text().stream())
+          .map(typed -> typed.text())
+          .findFirst()
+          .orElseThrow(() -> new PermanentReviewException("PARSE_FAILED", "Claude 응답이 비어 있습니다", null));
+    } catch (RateLimitException e) {
+      throw new TransientReviewException("LLM_RATELIMIT", "Claude 429", e);
+    } catch (InternalServerException e) {
+      throw new TransientReviewException("LLM_5XX", "Claude 5xx", e);
+    } catch (AnthropicIoException e) {
+      throw new TransientReviewException("LLM_TIMEOUT", "Claude io", e);
+    } catch (AnthropicRetryableException e) {
+      throw new TransientReviewException("LLM_5XX", "Claude retryable", e);
+    } catch (AnthropicException e) {
+      throw new PermanentReviewException("PARSE_FAILED", "Claude error", e);
+    }
   }
 
   @Override

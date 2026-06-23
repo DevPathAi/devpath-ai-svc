@@ -19,11 +19,12 @@ public class ReviewPersistenceService {
     this.jsonMapper = jsonMapper;
   }
 
-  /** 멱등: 이미 있으면 empty. UNIQUE(sandbox_session_id) 경합도 empty로 흡수. */
+  /** 기존 행이 있으면 그대로 반환, 없으면 PENDING 신규 생성. never null. UNIQUE 경합은 재조회로 흡수. */
   @Transactional
-  public Optional<AiCodeReview> createPendingIfAbsent(long sandboxSessionId, long userId, Long contentId) {
-    if (reviews.existsBySandboxSessionId(sandboxSessionId)) {
-      return Optional.empty();
+  public AiCodeReview findOrCreatePending(long sandboxSessionId, long userId, Long contentId) {
+    Optional<AiCodeReview> existing = reviews.findBySandboxSessionId(sandboxSessionId);
+    if (existing.isPresent()) {
+      return existing.get();
     }
     AiCodeReview r = new AiCodeReview();
     r.setSandboxSessionId(sandboxSessionId);
@@ -31,10 +32,22 @@ public class ReviewPersistenceService {
     r.setContentId(contentId);
     r.setStatus("PENDING");
     try {
-      return Optional.of(reviews.saveAndFlush(r));
+      return reviews.saveAndFlush(r);
     } catch (DataIntegrityViolationException dup) {
-      return Optional.empty();
+      return reviews.findBySandboxSessionId(sandboxSessionId).orElseThrow();
     }
+  }
+
+  /** 재시도 소진 시 PENDING 행을 FAILED(LLM_EXHAUSTED)로 종료. 이미 터미널이면 무변경(멱등). */
+  @Transactional
+  public void markExhausted(long sandboxSessionId) {
+    reviews.findBySandboxSessionId(sandboxSessionId).ifPresent(r -> {
+      if ("PENDING".equals(r.getStatus())) {
+        r.setStatus("FAILED");
+        r.setErrorCode("LLM_EXHAUSTED");
+        reviews.save(r);
+      }
+    });
   }
 
   @Transactional

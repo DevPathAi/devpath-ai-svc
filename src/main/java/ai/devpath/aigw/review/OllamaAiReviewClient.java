@@ -8,8 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -41,11 +43,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
   @Override
   public ReviewResult review(ReviewInput input) {
-    try {
-      return callAndParse(input);
-    } catch (ContractException firstFailure) {
-      return callAndParse(input); // 1회 retry
-    }
+    return callAndParse(input);
   }
 
   @Override
@@ -67,23 +65,28 @@ public class OllamaAiReviewClient implements AiReviewClient {
     try {
       response = restClient.post().uri("/api/chat").body(body)
           .retrieve().body(OllamaChatResponse.class);
-    } catch (RestClientException e) {
-      throw new ContractException("Ollama review 호출 실패", e);
+    } catch (RestClientResponseException e) { // HTTP 4xx/5xx 응답
+      int status = e.getStatusCode().value();
+      if (status == 429) {
+        throw new TransientReviewException("LLM_RATELIMIT", "Ollama 429", e);
+      }
+      if (status >= 500) {
+        throw new TransientReviewException("LLM_5XX", "Ollama " + status, e);
+      }
+      throw new PermanentReviewException("PARSE_FAILED", "Ollama " + status, e);
+    } catch (ResourceAccessException e) { // I/O 타임아웃/커넥션
+      throw new TransientReviewException("LLM_TIMEOUT", "Ollama timeout", e);
+    } catch (RestClientException e) { // 그 외 호출 실패
+      throw new TransientReviewException("LLM_TIMEOUT", "Ollama call failed", e);
     }
     if (response == null || response.message() == null
         || response.message().content() == null || response.message().content().isBlank()) {
-      throw new ContractException("Ollama review content가 비어 있습니다", null);
+      throw new PermanentReviewException("PARSE_FAILED", "Ollama empty content", null);
     }
     try {
       return jsonMapper.readValue(response.message().content(), ReviewResult.class);
     } catch (Exception e) {
-      throw new ContractException("Ollama review JSON 파싱 실패", e);
-    }
-  }
-
-  private static final class ContractException extends RuntimeException {
-    ContractException(String message, Throwable cause) {
-      super(message, cause);
+      throw new PermanentReviewException("PARSE_FAILED", "Ollama JSON parse failed", e);
     }
   }
 

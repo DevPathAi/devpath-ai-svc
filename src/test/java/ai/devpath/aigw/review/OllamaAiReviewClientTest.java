@@ -44,4 +44,41 @@ class OllamaAiReviewClientTest {
     assertThat(r.security()).hasSize(1);
     assertThat(r.security().get(0).severity()).isEqualTo("warning");
   }
+
+  @Test
+  void serverErrorMapsToTransient5xx() {
+    server.enqueue(new MockResponse().setResponseCode(503));
+    var client = new OllamaAiReviewClient(server.url("/").toString(), "qwen2.5-coder:7b",
+        Duration.ofSeconds(5), new ReviewPromptBuilder(), JsonMapper.builder().build());
+
+    TransientReviewException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        TransientReviewException.class,
+        () -> client.review(new ReviewInput("PYTHON", "x", "", "", 0)));
+    assertThat(ex.errorCode()).isEqualTo("LLM_5XX");
+  }
+
+  @Test
+  void rateLimitMapsToTransientRateLimit() {
+    server.enqueue(new MockResponse().setResponseCode(429));
+    var client = new OllamaAiReviewClient(server.url("/").toString(), "qwen2.5-coder:7b",
+        Duration.ofSeconds(5), new ReviewPromptBuilder(), JsonMapper.builder().build());
+
+    TransientReviewException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        TransientReviewException.class,
+        () -> client.review(new ReviewInput("PYTHON", "x", "", "", 0)));
+    assertThat(ex.errorCode()).isEqualTo("LLM_RATELIMIT");
+  }
+
+  @Test
+  void malformedJsonMapsToPermanentParseFailed() {
+    server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+        .setBody("{\"message\":{\"content\":\"not-json\"}}"));
+    var client = new OllamaAiReviewClient(server.url("/").toString(), "qwen2.5-coder:7b",
+        Duration.ofSeconds(5), new ReviewPromptBuilder(), JsonMapper.builder().build());
+
+    PermanentReviewException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        PermanentReviewException.class,
+        () -> client.review(new ReviewInput("PYTHON", "x", "", "", 0)));
+    assertThat(ex.errorCode()).isEqualTo("PARSE_FAILED");
+  }
 }

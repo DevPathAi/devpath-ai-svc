@@ -72,7 +72,7 @@ class ReviewServiceTest {
 
     AiCodeReview r = reviews.findBySandboxSessionId(sid).orElseThrow();
     assertThat(r.getStatus()).isEqualTo("FAILED");
-    assertThat(r.getErrorCode()).isEqualTo("LLM_FAILED");
+    assertThat(r.getErrorCode()).isEqualTo("SANDBOX_UNAVAILABLE");
     reviews.delete(r);
   }
 }
