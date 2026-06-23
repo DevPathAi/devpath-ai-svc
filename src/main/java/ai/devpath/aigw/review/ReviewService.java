@@ -1,6 +1,5 @@
 package ai.devpath.aigw.review;
 
-import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,11 +21,11 @@ public class ReviewService {
   }
 
   public void reviewRun(long sandboxSessionId, long userId, Long contentId) {
-    Optional<AiCodeReview> created = persistence.createPendingIfAbsent(sandboxSessionId, userId, contentId);
-    if (created.isEmpty()) {
-      return; // 멱등: 이미 리뷰 존재
+    AiCodeReview review = persistence.findOrCreatePending(sandboxSessionId, userId, contentId);
+    if ("DONE".equals(review.getStatus()) || "FAILED".equals(review.getStatus())) {
+      return; // 터미널 → 멱등 skip
     }
-    long reviewId = created.get().getId();
+    long reviewId = review.getId();
     try {
       SandboxSessionView session = sandboxClient.getSession(sandboxSessionId);
       if (session.userId() == null || session.userId() != userId) {
@@ -37,8 +36,14 @@ public class ReviewService {
           session.language(), session.submittedCode(),
           session.stdout(), session.stderr(), session.exitCode()));
       persistence.finishDone(reviewId, result, aiReviewClient.providerName());
+    } catch (TransientReviewException e) {
+      throw e; // PENDING 유지 → Kafka 재시도
+    } catch (PermanentReviewException e) {
+      persistence.finishFailed(reviewId, e.errorCode());
+    } catch (SandboxUnavailableException e) {
+      persistence.finishFailed(reviewId, "SANDBOX_UNAVAILABLE");
     } catch (RuntimeException e) {
-      persistence.finishFailed(reviewId, "LLM_FAILED");
+      persistence.finishFailed(reviewId, "LLM_FAILED"); // 예상밖 → 터미널(재시도 안 함)
     }
   }
 }
