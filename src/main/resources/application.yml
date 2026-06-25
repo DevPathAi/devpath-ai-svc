@@ -37,6 +37,17 @@ devpath:
     gen-model: ${OLLAMA_GEN_MODEL:qwen2.5:7b}
     embed-model: ${OLLAMA_EMBED_MODEL:nomic-embed-text}
     timeout: ${OLLAMA_TIMEOUT:PT8S}
+  mentor:
+    provider: ${MENTOR_PROVIDER:mock}
+    claude-model: ${MENTOR_CLAUDE_MODEL:claude-sonnet-4-6}
+    ollama-model: ${MENTOR_OLLAMA_MODEL:qwen2.5:7b}
+    enabled: ${MENTOR_ENABLED:true}
+    timeout: ${MENTOR_TIMEOUT:PT60S}
+  learning:
+    # 게이트웨이 미경유 내부 호출. 실제 주소는 LEARNING_URI로 주입(learning-svc server.port=8080 실측).
+    # 로컬 단위/IT는 MockWebServer라 기본값 무관.
+    base-url: ${LEARNING_URI:http://localhost:8081}
+    timeout: ${LEARNING_TIMEOUT:PT5S}
 
 management:
   endpoints:
