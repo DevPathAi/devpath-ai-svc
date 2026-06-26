@@ -18,6 +18,9 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 server:
   port: 8080
@@ -43,6 +46,11 @@ devpath:
     ollama-model: ${MENTOR_OLLAMA_MODEL:qwen2.5:7b}
     enabled: ${MENTOR_ENABLED:true}
     timeout: ${MENTOR_TIMEOUT:PT60S}
+  community-seed:
+    provider: ${COMMUNITY_SEED_PROVIDER:mock}
+    claude-model: ${COMMUNITY_SEED_CLAUDE_MODEL:claude-haiku-4-5}
+    ollama-model: ${COMMUNITY_SEED_OLLAMA_MODEL:qwen2.5:7b}
+    enabled: ${COMMUNITY_SEED_ENABLED:true}
   learning:
     # 게이트웨이 미경유 내부 호출. 실제 주소는 LEARNING_URI로 주입(learning-svc server.port=8080 실측).
     # 로컬 단위/IT는 MockWebServer라 기본값 무관.

@@ -32,7 +32,10 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew build
+      # --refresh-dependencies: devpath-shared 0.0.1-SNAPSHOT(changing)를 매 CI 재해소.
+      # Gradle SNAPSHOT 24h TTL + 캐시로 빌드 A(community 이벤트) 미반영 stale jar가 잡혀
+      # compile 실패한 사례 방지(슬라이스 #8 빌드 C).
+      - run: ./gradlew build --refresh-dependencies
         env:
           DB_URL: jdbc:postgresql://localhost:5432/devpath
           DB_USER: devpath
@@ -54,7 +57,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew bootJar
+      - run: ./gradlew bootJar --refresh-dependencies
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
