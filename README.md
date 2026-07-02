@@ -2,7 +2,7 @@
 
 **DevPath AI** AI 서비스 — AI Gateway, 코드 리뷰 워커, FinOps를 담당합니다.
 
-> **현재 구현 상태(2026-06-19)**: 로컬 개발 빌드는 Ollama gateway입니다. 실제 코드에는 `POST /ai/embed`, `POST /ai/path/generate`가 구현되어 있으며, 운영 목표는 Claude 등 외부 provider로 교체 가능한 AI Gateway입니다.
+> **현재 구현 상태(2026-07-02)**: 로컬 개발 빌드는 Ollama gateway입니다. 실제 코드에는 `POST /ai/embed`, `POST /ai/path/generate`가 구현되어 있으며, 운영 목표는 Claude 등 외부 provider로 교체 가능한 AI Gateway입니다.
 
 ## 담당 도메인
 
@@ -11,6 +11,7 @@
 | ai-gateway | 현재 dev: Ollama embed/path 생성 위임 · 운영 목표: Claude 등 provider 단일 진입점 |
 | mentor | AI 멘토 채팅 세션 (`POST /ai-mentor/sessions`) — 구현됨 |
 | review | AI 코드 리뷰 조회/피드백 (`GET /reviews`, `GET /reviews/{id}`, `POST /reviews/{id}/feedback`) — 구현됨. Kafka Consumer 비동기 트리거는 후속(목표) |
+| community | 커뮤니티 AI 시드 답변 생성(Claude/Ollama, `CommunitySeedConsumer`가 Kafka 이벤트 소비) — 구현됨 |
 | finops | 토큰 사용량/비용 집계 (목표) |
 
 **아키텍처 원칙**: 모든 LLM 호출은 이 서비스를 경유합니다. 현재는 Ollama로 비용 없이 계약을 검증하고, 운영에서는 Claude API 등으로 교체합니다.
@@ -20,7 +21,7 @@
 - Spring Boot 4.0.x · Java 21 · Gradle (Kotlin DSL)
 - [devpath-svc-template](https://github.com/DevPathAi/devpath-svc-template) 기반
 - 패키지: `ai.devpath.aigw`
-- 현재 구현 패키지: `ai.devpath.aigw.ollama`(embed/path), `ai.devpath.aigw.mentor`, `ai.devpath.aigw.review`
+- 현재 구현 패키지: `ai.devpath.aigw.ollama`(embed/path), `ai.devpath.aigw.mentor`, `ai.devpath.aigw.review`, `ai.devpath.aigw.community`(AI 시드 답변)
 - Kafka·Redis 의존성은 후속 review-worker/FinOps 구현 시 활성화
 
 ## 빌드 / 실행
