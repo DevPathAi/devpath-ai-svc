@@ -46,7 +46,8 @@
 | 모듈 | 역할 |
 |------|------|
 | ai-gateway | 현재 dev: Ollama embed/path 생성 위임 · 운영 목표: Claude 등 provider 단일 진입점 |
-| review-worker | Kafka Consumer 비동기 AI 코드 리뷰 (목표) |
+| mentor | AI 멘토 채팅 세션 — 구현됨 |
+| review | AI 코드 리뷰 조회/피드백 — 구현됨. Kafka Consumer 비동기 트리거는 후속(목표) |
 | finops | 토큰 사용량/비용 집계 (목표) |
 ## 공통 규칙
 
