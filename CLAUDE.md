@@ -2,7 +2,7 @@
 
 > AI 서비스 — AI Gateway, 코드 리뷰 워커, FinOps (2nd Aha)
 >
-> **현재 구현 상태(2026-06-19)**: 이 레포의 dev 빌드는 Ollama gateway다. 현재 구현 API는 `POST /ai/embed`, `POST /ai/path/generate`이며, 운영 목표는 Claude 등 provider 교체 가능한 AI Gateway다.
+> **현재 구현 상태(2026-07-02)**: 이 레포의 dev 빌드는 Ollama gateway다. 현재 구현 API는 `POST /ai/embed`, `POST /ai/path/generate`이며, 운영 목표는 Claude 등 provider 교체 가능한 AI Gateway다.
 
 ## 🚫 절대 조건 — 모든 작업에 예외 없이 적용
 
@@ -48,6 +48,7 @@
 | ai-gateway | 현재 dev: Ollama embed/path 생성 위임 · 운영 목표: Claude 등 provider 단일 진입점 |
 | mentor | AI 멘토 채팅 세션 — 구현됨 |
 | review | AI 코드 리뷰 조회/피드백 — 구현됨. Kafka Consumer 비동기 트리거는 후속(목표) |
+| community | 커뮤니티 AI 시드 답변 생성(Claude/Ollama, `CommunitySeedConsumer`가 Kafka 이벤트 소비) — 구현됨 |
 | finops | 토큰 사용량/비용 집계 (목표) |
 ## 공통 규칙
 
