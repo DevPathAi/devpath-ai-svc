@@ -56,6 +56,10 @@ devpath:
     # 로컬 단위/IT는 MockWebServer라 기본값 무관.
     base-url: ${LEARNING_URI:http://localhost:8081}
     timeout: ${LEARNING_TIMEOUT:PT5S}
+  retention:
+    provider: ${RETENTION_PROVIDER:mock}
+    claude-model: ${RETENTION_CLAUDE_MODEL:claude-sonnet-4-6}
+    enabled: ${RETENTION_ENABLED:true}
 
 management:
   endpoints:

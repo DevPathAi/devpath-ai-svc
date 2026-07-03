@@ -4,6 +4,11 @@ spring:
     username: ${DB_USER:devpath}
     password: ${DB_PASSWORD:localdev}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # 다수의 @SpringBootTest 컨텍스트가 컨텍스트 캐시에 상주하며 각자 풀을 열어
+      # Postgres max_connections(100)를 넘겨 "too many clients"(53300)가 간헐 발생.
+      # 테스트에선 컨텍스트당 소수 커넥션으로 충분 → 총 커넥션 수를 낮춰 방지.
+      maximum-pool-size: 4
   flyway:
     enabled: true
     locations: classpath:db/migration
