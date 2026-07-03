@@ -47,7 +47,8 @@ class ReviewControllerTest {
   void getByIdForbiddenForNonOwner() throws Exception {
     long id = seed(42L, "DONE");
     mvc.perform(get("/reviews/" + id).with(jwt().jwt(j -> j.subject("999"))))
-        .andExpect(status().isForbidden());
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     reviews.deleteById(id);
   }
 
@@ -80,6 +81,7 @@ class ReviewControllerTest {
   @Test
   void missingReviewReturns404() throws Exception {
     mvc.perform(get("/reviews/999999999").with(jwt().jwt(j -> j.subject("42"))))
-        .andExpect(status().isNotFound());
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
   }
 }

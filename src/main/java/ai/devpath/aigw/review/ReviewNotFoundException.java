@@ -1,9 +1,11 @@
 package ai.devpath.aigw.review;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
+import ai.devpath.shared.error.ApiException;
+import ai.devpath.shared.error.ErrorCode;
 
-@ResponseStatus(HttpStatus.NOT_FOUND)
-public class ReviewNotFoundException extends RuntimeException {
-  public ReviewNotFoundException(String message) { super(message); }
+/** 리뷰 없음 → 스펙 §3.4 RESOURCE_NOT_FOUND(404). 공용 ApiExceptionHandler가 envelope로 렌더. */
+public class ReviewNotFoundException extends ApiException {
+  public ReviewNotFoundException(String message) {
+    super(ErrorCode.RESOURCE_NOT_FOUND, message);
+  }
 }

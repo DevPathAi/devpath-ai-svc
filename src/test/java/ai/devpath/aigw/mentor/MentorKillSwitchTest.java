@@ -2,6 +2,7 @@ package ai.devpath.aigw.mentor;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ class MentorKillSwitchTest {
             .with(jwt().jwt(j -> j.subject("42")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"q\"}"))
-        .andExpect(status().isServiceUnavailable());
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.error.code").value("AI_KILL_SWITCH_ACTIVE"));
   }
 }
