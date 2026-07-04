@@ -1,5 +1,7 @@
 package ai.devpath.aigw.mentor;
 
+import ai.devpath.shared.error.ErrorCode;
+import ai.devpath.shared.error.SseSupport;
 import java.io.IOException;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -47,10 +49,16 @@ public class MentorService {
       emitter.complete();
     } catch (MentorStreamAbortedException abort) {
       persistence.saveFailed(userId, question, contentId, ctx.snapshotJson(), "CLIENT_ABORTED");
-      emitter.completeWithError(abort.getCause());
+      try {
+        SseSupport.sendError(emitter, ErrorCode.INTERNAL_ERROR, "stream aborted");
+        emitter.complete();
+      } catch (Exception ignored) {
+        emitter.completeWithError(abort.getCause());
+      }
     } catch (Exception e) {
       persistence.saveFailed(userId, question, contentId, ctx.snapshotJson(), "LLM_FAILED");
-      emitter.completeWithError(e);
+      SseSupport.sendError(emitter, ErrorCode.INTERNAL_ERROR, e.getMessage());
+      emitter.complete();
     }
   }
 
