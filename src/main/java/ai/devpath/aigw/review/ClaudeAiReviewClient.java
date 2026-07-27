@@ -8,6 +8,7 @@ import com.anthropic.errors.InternalServerException;
 import com.anthropic.errors.RateLimitException;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.StructuredMessageCreateParams;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,7 @@ public class ClaudeAiReviewClient implements AiReviewClient {
   private final ReviewPromptBuilder prompts;
 
   public ClaudeAiReviewClient(
-      AnthropicClient client,
+      @Qualifier("anthropicClient") AnthropicClient client,
       @Value("${devpath.review.claude-model:claude-sonnet-4-6}") String model,
       ReviewPromptBuilder prompts) {
     this.client = client;

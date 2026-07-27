@@ -38,7 +38,7 @@ public class SecurityConfig {
     http
         .csrf(csrf -> csrf.disable())
         .authorizeHttpRequests(authorize -> authorize
-            .requestMatchers("/actuator/health").permitAll()
+            .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
             // 기존 Ollama 게이트웨이(/ai/**)는 learning-svc가 호출하는 내부 엔드포인트 — 무인증 유지(pre-C1 동작 보존).
             .requestMatchers("/ai/**").permitAll()
             .anyRequest().authenticated())
