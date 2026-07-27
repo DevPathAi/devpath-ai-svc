@@ -56,7 +56,7 @@ class MentorServiceTest {
   }
 
   @Test
-  void persistsFailedAndCompletesWithErrorOnLlmFailure() throws Exception {
+  void persistsFailedAndEmitsErrorEventThenCompletesOnLlmFailure() throws Exception {
     when(contextAssembler.assemble(42L, null))
         .thenReturn(new MentorContext("ctx", "{}", null));
     when(referenceService.find(anyString(), isNull())).thenReturn(List.of());
@@ -67,7 +67,9 @@ class MentorServiceTest {
     service().streamAnswer(42L, "q", null, emitter);
 
     verify(persistence).saveFailed(eq(42L), eq("q"), isNull(), anyString(), anyString());
-    assertThat(emitter.error).isNotNull();
+    assertThat(emitter.events).anyMatch(e -> e.contains("INTERNAL_ERROR"));
+    assertThat(emitter.completed).isTrue();
+    assertThat(emitter.error).isNull();
   }
 
   /** SseEmitter 더블: send된 이벤트 문자열과 complete/error를 기록. */
