@@ -42,6 +42,7 @@ devpath:
     timeout: ${OLLAMA_TIMEOUT:PT8S}
   mentor:
     provider: ${MENTOR_PROVIDER:mock}
+    fallback: ${MENTOR_FALLBACK:}
     claude-model: ${MENTOR_CLAUDE_MODEL:claude-sonnet-4-6}
     ollama-model: ${MENTOR_OLLAMA_MODEL:qwen2.5:7b}
     enabled: ${MENTOR_ENABLED:true}

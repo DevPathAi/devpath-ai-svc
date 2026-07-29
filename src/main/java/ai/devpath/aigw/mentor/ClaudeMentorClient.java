@@ -7,15 +7,12 @@ import com.anthropic.models.messages.RawMessageStreamEvent;
 import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 운영 멘토(Anthropic Claude 스트리밍). 키(ANTHROPIC_API_KEY)는 SDK가 환경변수로 읽는다.
  * 자유 텍스트 스트림(구조화 출력 없음) — 인젝션 방어는 MentorPromptBuilder(system+델리미터, M-8).
+ * 빈 등록/선택은 MentorClientConfig 팩토리가 담당한다(직접 @Component 아님).
  */
-@Component
-@ConditionalOnProperty(name = "devpath.mentor.provider", havingValue = "claude")
 public class ClaudeMentorClient implements AiMentorClient {
 
   private final AnthropicClient client;
