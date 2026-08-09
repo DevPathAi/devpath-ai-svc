@@ -30,8 +30,15 @@ public class KnowledgeReferenceService {
   /**
    * 미리 계산된 임베딩으로 검색한다(질문 임베딩 중복 계산 방지, 리뷰 Important #2). MentorService가
    * {@link MentorReferenceService#embedQuestion(String)}으로 한 번만 계산한 임베딩을 여기 재사용한다.
+   * {@code searchSimilar}가 {@code RestClientException}은 내부에서 잡아 빈 리스트로 폴백하지만, 그 외
+   * 예기치 않은 RuntimeException(예: 역직렬화 버그성 예외)까지 여기서 잡아야 "검색 실패는 빈 리스트,
+   * 답변은 계속" 불변식이 이 진입점(리뷰 재리뷰 Minor)에서도 지켜진다.
    */
   public List<KnowledgeChunk> findByEmbedding(List<Double> embedding) {
-    return knowledgeClient.searchSimilar(embedding, TOP_K);
+    try {
+      return knowledgeClient.searchSimilar(embedding, TOP_K);
+    } catch (RuntimeException e) {
+      return List.of();
+    }
   }
 }

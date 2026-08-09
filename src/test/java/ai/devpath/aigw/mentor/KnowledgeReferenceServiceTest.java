@@ -53,4 +53,18 @@ class KnowledgeReferenceServiceTest {
 
     assertThat(result).containsExactly(chunk);
   }
+
+  @Test
+  void findByEmbeddingReturnsEmptyListWhenClientThrowsUnexpectedRuntimeException() {
+    // RestClientException은 KnowledgeClient.searchSimilar 내부 catch에서 이미 빈 리스트로 걸러지므로
+    // 여기선 그 catch를 통과하는 종류(RestClientException이 아닌 RuntimeException)를 던져야
+    // findByEmbedding 자체의 방어(재리뷰 Minor 조치)가 실제로 동작하는지 검증할 수 있다.
+    var embedding = Collections.nCopies(768, 0.1);
+    when(knowledgeClient.searchSimilar(embedding, 3)).thenThrow(new IllegalStateException("역직렬화 버그"));
+
+    var svc = new KnowledgeReferenceService(ollamaClient, knowledgeClient);
+    List<KnowledgeChunk> result = svc.findByEmbedding(embedding);
+
+    assertThat(result).isEmpty();
+  }
 }
