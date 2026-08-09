@@ -35,13 +35,24 @@ public class MentorService {
     MentorContext ctx = contextAssembler.assemble(userId, contentId);
     StringBuilder answer = new StringBuilder();
     try {
-      List<SimilarContent> refs = referenceService.find(question, ctx.track());
+      // 질문 임베딩은 한 번만 계산해 references 검색과 지식베이스 검색 양쪽에 재사용한다.
+      // (리뷰 Important #2: 이전엔 두 서비스가 각자 embed를 호출해 요청당 Ollama embed가 2회였다.)
+      List<Double> embedding;
+      try {
+        embedding = referenceService.embedQuestion(question);
+      } catch (RuntimeException e) {
+        embedding = null; // 임베딩 실패 → 아래 두 검색 모두 생략, 토큰 스트림은 무관 진행
+      }
+
+      List<SimilarContent> refs = embedding == null
+          ? List.of() : referenceService.findByEmbedding(embedding, ctx.track());
       if (!refs.isEmpty()) {
         emitter.send(SseEmitter.event().name("references").data(jsonMapper.writeValueAsString(refs)));
       }
       // 지식베이스 근거는 프롬프트에만 넣는다. 비공개 문서라 학습자가 열 수 없으므로
       // SSE references 목록에는 노출하지 않는다.
-      List<KnowledgeChunk> referenceDocs = knowledgeService.find(question);
+      List<KnowledgeChunk> referenceDocs = embedding == null
+          ? List.of() : knowledgeService.findByEmbedding(embedding);
       mentorClient.stream(new MentorInput(question, ctx.promptText(), referenceDocs), token -> {
         answer.append(token);
         try {

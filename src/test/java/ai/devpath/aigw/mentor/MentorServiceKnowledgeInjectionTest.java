@@ -37,12 +37,14 @@ class MentorServiceKnowledgeInjectionTest {
     when(contextAssembler.assemble(anyLong(), any()))
         .thenReturn(new MentorContext("맥락", "{}", "BACKEND_SPRING"));
 
+    // MentorService가 질문 임베딩을 한 번만 계산해 findByEmbedding에 재사용한다(리뷰 Important #2 이후
+    // 배선). find(String,String)/find(String)은 더 이상 호출되지 않으므로 stub 대상을 findByEmbedding으로 옮긴다.
     var referenceService = mock(MentorReferenceService.class);
-    when(referenceService.find(any(), any())).thenReturn(List.of());
+    when(referenceService.findByEmbedding(any(), any())).thenReturn(List.of());
 
     var knowledgeService = mock(KnowledgeReferenceService.class);
     var chunk = new KnowledgeChunk("AWS/a.md", "AWS 개념", "AWS", "근거 본문", 0.1);
-    when(knowledgeService.find(any())).thenReturn(List.of(chunk));
+    when(knowledgeService.findByEmbedding(any())).thenReturn(List.of(chunk));
 
     var client = new CapturingClient();
     var persistence = mock(MentorPersistenceService.class);
@@ -62,10 +64,10 @@ class MentorServiceKnowledgeInjectionTest {
         .thenReturn(new MentorContext("맥락", "{}", null));
 
     var referenceService = mock(MentorReferenceService.class);
-    when(referenceService.find(any(), any())).thenReturn(List.of());
+    when(referenceService.findByEmbedding(any(), any())).thenReturn(List.of());
 
     var knowledgeService = mock(KnowledgeReferenceService.class);
-    when(knowledgeService.find(any())).thenReturn(List.of());   // 검색 실패 → 빈 리스트
+    when(knowledgeService.findByEmbedding(any())).thenReturn(List.of());   // 검색 실패 → 빈 리스트
 
     var client = new CapturingClient();
     var service = new MentorService(contextAssembler, referenceService, knowledgeService,

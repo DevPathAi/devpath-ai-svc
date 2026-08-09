@@ -9,6 +9,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -34,9 +35,13 @@ class MentorServiceTest {
 
   @Test
   void streamsReferencesThenTokensThenPersistsDone() throws Exception {
+    // MentorService가 질문 임베딩을 한 번만 계산해 referenceService.findByEmbedding에 재사용한다
+    // (리뷰 Important #2 이후 배선). find(String,String)은 더 이상 호출되지 않으므로 stub 대상을 옮긴다.
+    List<Double> embedding = Collections.nCopies(768, 0.1);
     when(contextAssembler.assemble(42L, 7L))
         .thenReturn(new MentorContext("ctx", "{\"track\":\"BACKEND_SPRING\"}", "BACKEND_SPRING"));
-    when(referenceService.find("비동기란?", "BACKEND_SPRING"))
+    when(referenceService.embedQuestion("비동기란?")).thenReturn(embedding);
+    when(referenceService.findByEmbedding(embedding, "BACKEND_SPRING"))
         .thenReturn(List.of(new SimilarContent(1, "a", "t")));
     when(mentorClient.providerName()).thenReturn("MOCK");
     doAnswer(inv -> {
@@ -60,7 +65,8 @@ class MentorServiceTest {
   void persistsFailedAndEmitsErrorEventThenCompletesOnLlmFailure() throws Exception {
     when(contextAssembler.assemble(42L, null))
         .thenReturn(new MentorContext("ctx", "{}", null));
-    when(referenceService.find(anyString(), isNull())).thenReturn(List.of());
+    // referenceService.embedQuestion/findByEmbedding·knowledgeService.findByEmbedding은 unstubbed 상태로
+    // Mockito 기본값(빈 리스트)을 반환한다 — 이 테스트는 LLM 실패 경로만 검증하므로 별도 stub이 불필요하다.
     doAnswer(inv -> { throw new RuntimeException("llm down"); })
         .when(mentorClient).stream(any(), any());
 

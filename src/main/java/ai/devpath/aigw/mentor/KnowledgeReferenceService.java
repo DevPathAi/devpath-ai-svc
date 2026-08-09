@@ -21,9 +21,17 @@ public class KnowledgeReferenceService {
   public List<KnowledgeChunk> find(String question) {
     try {
       List<Double> embedding = ollamaClient.embed(List.of(question)).embeddings().get(0);
-      return knowledgeClient.searchSimilar(embedding, TOP_K);
+      return findByEmbedding(embedding);
     } catch (RuntimeException e) {
       return List.of();
     }
+  }
+
+  /**
+   * 미리 계산된 임베딩으로 검색한다(질문 임베딩 중복 계산 방지, 리뷰 Important #2). MentorService가
+   * {@link MentorReferenceService#embedQuestion(String)}으로 한 번만 계산한 임베딩을 여기 재사용한다.
+   */
+  public List<KnowledgeChunk> findByEmbedding(List<Double> embedding) {
+    return knowledgeClient.searchSimilar(embedding, TOP_K);
   }
 }

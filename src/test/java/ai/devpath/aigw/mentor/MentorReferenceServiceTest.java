@@ -41,4 +41,28 @@ class MentorReferenceServiceTest {
     var svc = new MentorReferenceService(ollamaClient, learningClient);
     assertThat(svc.find("q", null)).isEmpty();
   }
+
+  @Test
+  void findByEmbeddingSkipsReEmbeddingAndDelegatesDirectly() {
+    var embedding = Collections.nCopies(768, 0.1);
+    when(learningClient.searchSimilar(embedding, 3, "BACKEND_SPRING"))
+        .thenReturn(List.of(new SimilarContent(1, "a", "t")));
+
+    var svc = new MentorReferenceService(ollamaClient, learningClient);
+    List<SimilarContent> refs = svc.findByEmbedding(embedding, "BACKEND_SPRING");
+
+    assertThat(refs).hasSize(1);
+    assertThat(refs.get(0).slug()).isEqualTo("a");
+  }
+
+  @Test
+  void embedQuestionReturnsRawEmbeddingForReuseByCaller() {
+    when(ollamaClient.embed(List.of("비동기란?")))
+        .thenReturn(new EmbedResponse(List.of(Collections.nCopies(768, 0.1))));
+
+    var svc = new MentorReferenceService(ollamaClient, learningClient);
+    List<Double> embedding = svc.embedQuestion("비동기란?");
+
+    assertThat(embedding).hasSize(768);
+  }
 }
