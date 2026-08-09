@@ -14,14 +14,17 @@ public class MentorService {
 
   private final MentorContextAssembler contextAssembler;
   private final MentorReferenceService referenceService;
+  private final KnowledgeReferenceService knowledgeService;
   private final AiMentorClient mentorClient;
   private final MentorPersistenceService persistence;
   private final JsonMapper jsonMapper;
 
   public MentorService(MentorContextAssembler contextAssembler, MentorReferenceService referenceService,
+      KnowledgeReferenceService knowledgeService,
       AiMentorClient mentorClient, MentorPersistenceService persistence, JsonMapper jsonMapper) {
     this.contextAssembler = contextAssembler;
     this.referenceService = referenceService;
+    this.knowledgeService = knowledgeService;
     this.mentorClient = mentorClient;
     this.persistence = persistence;
     this.jsonMapper = jsonMapper;
@@ -36,7 +39,10 @@ public class MentorService {
       if (!refs.isEmpty()) {
         emitter.send(SseEmitter.event().name("references").data(jsonMapper.writeValueAsString(refs)));
       }
-      mentorClient.stream(new MentorInput(question, ctx.promptText()), token -> {
+      // 지식베이스 근거는 프롬프트에만 넣는다. 비공개 문서라 학습자가 열 수 없으므로
+      // SSE references 목록에는 노출하지 않는다.
+      List<KnowledgeChunk> referenceDocs = knowledgeService.find(question);
+      mentorClient.stream(new MentorInput(question, ctx.promptText(), referenceDocs), token -> {
         answer.append(token);
         try {
           emitter.send(SseEmitter.event().name("token").data(token));

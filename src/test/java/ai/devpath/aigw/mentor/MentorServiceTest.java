@@ -23,11 +23,12 @@ class MentorServiceTest {
 
   @Mock MentorContextAssembler contextAssembler;
   @Mock MentorReferenceService referenceService;
+  @Mock KnowledgeReferenceService knowledgeService;
   @Mock AiMentorClient mentorClient;
   @Mock MentorPersistenceService persistence;
 
   private MentorService service() {
-    return new MentorService(contextAssembler, referenceService, mentorClient, persistence,
+    return new MentorService(contextAssembler, referenceService, knowledgeService, mentorClient, persistence,
         JsonMapper.builder().build());
   }
 
