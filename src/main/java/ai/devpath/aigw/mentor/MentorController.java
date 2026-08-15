@@ -16,15 +16,17 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class MentorController {
 
   private final MentorService mentorService;
+  private final MentorSnapshotClient snapshotClient;
   private final AsyncTaskExecutor mentorExecutor;
   private final boolean enabled;
   private final long timeoutMs;
 
-  public MentorController(MentorService mentorService,
+  public MentorController(MentorService mentorService, MentorSnapshotClient snapshotClient,
       @org.springframework.beans.factory.annotation.Qualifier("mentorExecutor") AsyncTaskExecutor mentorExecutor,
       @Value("${devpath.mentor.enabled:true}") boolean enabled,
       @Value("${devpath.mentor.timeout:PT60S}") java.time.Duration timeout) {
     this.mentorService = mentorService;
+    this.snapshotClient = snapshotClient;
     this.mentorExecutor = mentorExecutor;
     this.enabled = enabled;
     this.timeoutMs = timeout.toMillis();
@@ -39,10 +41,14 @@ public class MentorController {
       throw new IllegalArgumentException("message must not be blank");
     }
     long userId = Long.parseLong(jwt.getSubject());
+    MentorSnapshotContext approvedContext = req.contextSnapshotId() == null
+        ? null
+        : snapshotClient.consume(req.contextSnapshotId(), jwt.getTokenValue());
     SseEmitter emitter = new SseEmitter(timeoutMs);
     emitter.onTimeout(emitter::complete);
     mentorExecutor.execute(() ->
-        mentorService.streamAnswer(userId, req.message(), req.contentId(), emitter));
+        mentorService.streamAnswer(
+            userId, req.message(), req.contentId(), approvedContext, emitter));
     return emitter;
   }
 }

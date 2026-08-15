@@ -1,5 +1,6 @@
 package ai.devpath.aigw.mentor.eval;
 
+import ai.devpath.aigw.mentor.KnowledgeChunk;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -14,7 +15,16 @@ import tools.jackson.databind.json.JsonMapper;
  * 한 케이스는 둘 중 하나만 지정(나머지는 null). #6 GoldenCase 패턴 미러.
  */
 record MentorGoldenCase(
-    String question, String context, String mustContain, String mustNotContain, String note) {
+    String caseId,
+    String category,
+    boolean hardInvariant,
+    String question,
+    String context,
+    String referenceCategory,
+    String referenceTitle,
+    String referenceText,
+    String mustContain,
+    String mustNotContain) {
 
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -38,5 +48,17 @@ record MentorGoldenCase(
       throw new IllegalStateException("멘토 골든 케이스 로딩 실패", e);
     }
     return cases;
+  }
+
+  List<KnowledgeChunk> referenceDocs() {
+    if (referenceCategory == null && referenceTitle == null && referenceText == null) {
+      return List.of();
+    }
+    return List.of(new KnowledgeChunk(
+        "synthetic/reference.md",
+        referenceTitle == null ? "synthetic" : referenceTitle,
+        referenceCategory == null ? "synthetic" : referenceCategory,
+        referenceText == null ? "synthetic" : referenceText,
+        0.0));
   }
 }

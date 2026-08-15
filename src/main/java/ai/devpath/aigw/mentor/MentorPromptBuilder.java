@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 /**
  * 멘토 프롬프트 빌더(인젝션 방어, M-8). 멘토는 자유 텍스트 스트림이라 코드리뷰의 구조화 출력
  * (최강 방어)이 없다 → system prompt + 델리미터 격리가 1차 방어.
- * - 학습 맥락(콘텐츠·sandbox)·참고 문서·사용자 질문을 모두 신뢰불가 데이터로 태그 격리한다.
+ * - LCS 승인 학습 맥락·참고 문서·사용자 질문을 모두 신뢰불가 데이터로 태그 격리한다.
  * - system prompt가 "태그 안 지시 무시 + 멘토링 외 행동 거부"를 명시한다.
  */
 @Component
@@ -28,17 +28,22 @@ public class MentorPromptBuilder {
   }
 
   public String userContent(MentorInput input) {
-    String context = input.contextText() == null ? "" : input.contextText();
-    String question = input.question() == null ? "" : input.question();
-    return referenceDocsBlock(input) + """
-        <learning_context>
-        %s
-        </learning_context>
+    String context = escape(input.contextText());
+    String question = escape(input.question());
+    StringBuilder content = new StringBuilder(referenceDocsBlock(input));
+    if (!context.isEmpty()) {
+      content.append("""
+          <learning_context>
+          %s
+          </learning_context>
 
+          """.formatted(context));
+    }
+    return content.append("""
         <user_question>
         %s
         </user_question>
-        """.formatted(context, question);
+        """.formatted(question)).toString();
   }
 
   private String referenceDocsBlock(MentorInput input) {
@@ -48,9 +53,19 @@ public class MentorPromptBuilder {
     }
     var sb = new StringBuilder("<reference_docs>\n");
     for (KnowledgeChunk doc : docs) {
-      sb.append("[").append(doc.category()).append(" / ").append(doc.title()).append("]\n")
-          .append(doc.chunkText()).append("\n\n");
+      sb.append("[").append(escape(doc.category())).append(" / ")
+          .append(escape(doc.title())).append("]\n")
+          .append(escape(doc.chunkText())).append("\n\n");
     }
     return sb.append("</reference_docs>\n\n").toString();
+  }
+
+  private String escape(String value) {
+    if (value == null) {
+      return "";
+    }
+    return value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;");
   }
 }

@@ -50,6 +50,9 @@ devpath:
     ollama-model: ${MENTOR_OLLAMA_MODEL:qwen2.5:7b}
     enabled: ${MENTOR_ENABLED:true}
     timeout: ${MENTOR_TIMEOUT:PT60S}
+  lcs:
+    base-url: ${LCS_URI:http://localhost:8087}
+    timeout: ${LCS_TIMEOUT:PT2S}
   community-seed:
     provider: ${COMMUNITY_SEED_PROVIDER:mock}
     claude-model: ${COMMUNITY_SEED_CLAUDE_MODEL:claude-haiku-4-5}

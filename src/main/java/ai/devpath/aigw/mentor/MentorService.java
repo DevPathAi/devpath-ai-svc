@@ -31,8 +31,9 @@ public class MentorService {
   }
 
   /** 전용 executor 스레드에서 호출. 예외를 던지지 않고 emitter로 종결한다. */
-  public void streamAnswer(long userId, String question, Long contentId, SseEmitter emitter) {
-    MentorContext ctx = contextAssembler.assemble(userId, contentId);
+  public void streamAnswer(long userId, String question, Long contentId,
+      MentorSnapshotContext approvedContext, SseEmitter emitter) {
+    MentorContext ctx = contextAssembler.assemble(approvedContext);
     StringBuilder answer = new StringBuilder();
     try {
       // 질문 임베딩은 한 번만 계산해 references 검색과 지식베이스 검색 양쪽에 재사용한다.
@@ -63,19 +64,40 @@ public class MentorService {
       });
       persistence.saveDone(userId, question, contentId, answer.toString(),
           ctx.snapshotJson(), jsonMapper.writeValueAsString(refs), mentorClient.providerName());
-      emitter.complete();
+      completeBestEffort(emitter);
     } catch (MentorStreamAbortedException abort) {
-      persistence.saveFailed(userId, question, contentId, ctx.snapshotJson(), "CLIENT_ABORTED");
-      try {
-        SseSupport.sendError(emitter, ErrorCode.INTERNAL_ERROR, "stream aborted");
-        emitter.complete();
-      } catch (Exception ignored) {
-        emitter.completeWithError(abort.getCause());
-      }
+      saveFailedBestEffort(userId, question, contentId, ctx.snapshotJson(), "CLIENT_ABORTED");
+      finishWithSafeError(emitter, "stream aborted");
     } catch (Exception e) {
-      persistence.saveFailed(userId, question, contentId, ctx.snapshotJson(), "LLM_FAILED");
-      SseSupport.sendError(emitter, ErrorCode.INTERNAL_ERROR, e.getMessage());
+      saveFailedBestEffort(userId, question, contentId, ctx.snapshotJson(), "LLM_FAILED");
+      finishWithSafeError(emitter, "mentor response unavailable");
+    }
+  }
+
+  private void saveFailedBestEffort(long userId, String question, Long contentId,
+      String snapshotJson, String errorCode) {
+    try {
+      persistence.saveFailed(userId, question, contentId, snapshotJson, errorCode);
+    } catch (RuntimeException ignored) {
+      // 영속 계층 장애가 SSE 종결을 막거나 raw 예외를 사용자 경계로 노출하면 안 된다.
+    }
+  }
+
+  private void finishWithSafeError(SseEmitter emitter, String safeMessage) {
+    try {
+      SseSupport.sendError(emitter, ErrorCode.INTERNAL_ERROR, safeMessage);
+    } catch (RuntimeException ignored) {
+      // 전송이 이미 끊긴 경우에도 complete를 최종 시도한다.
+    } finally {
+      completeBestEffort(emitter);
+    }
+  }
+
+  private void completeBestEffort(SseEmitter emitter) {
+    try {
       emitter.complete();
+    } catch (RuntimeException ignored) {
+      // SseEmitter 자체가 이미 terminal이면 완료된 상태 전이를 되돌리거나 예외를 노출하지 않는다.
     }
   }
 
