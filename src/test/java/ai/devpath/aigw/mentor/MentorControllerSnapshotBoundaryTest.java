@@ -5,25 +5,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 class MentorControllerSnapshotBoundaryTest {
 
-  private final MentorService service = mock(MentorService.class);
+  private final MentorExecutionCoordinator coordinator = mock(MentorExecutionCoordinator.class);
   private final MentorSnapshotClient snapshotClient = mock(MentorSnapshotClient.class);
-  private final AsyncTaskExecutor executor = mock(AsyncTaskExecutor.class);
-  private final MentorController controller =
-      new MentorController(service, snapshotClient, executor, true, Duration.ofSeconds(60));
+  private final MentorController controller = new MentorController(coordinator, snapshotClient, true);
 
   @Test
   void invalidSnapshotStopsBeforeEmitterExecutorAndProviderWork() {
-    org.mockito.Mockito.when(snapshotClient.consume(23L, "final-jwt"))
+    when(snapshotClient.consume(23L, "final-jwt"))
         .thenThrow(new MentorSnapshotUnavailableException());
 
     assertThatThrownBy(() -> controller.sessions(jwt(), new MentorRequest("질문", 7L, 23L)))
@@ -31,35 +27,48 @@ class MentorControllerSnapshotBoundaryTest {
         .hasMessage("mentor snapshot unavailable");
 
     verify(snapshotClient).consume(23L, "final-jwt");
-    verifyNoInteractions(executor, service);
+    verifyNoInteractions(coordinator);
   }
 
   @Test
   void noSnapshotMakesZeroLcsCallsAndStartsWithZeroSupplementalContext() {
-    ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+    SseEmitter expected = new SseEmitter();
+    when(coordinator.start(42L, "질문", 7L, null)).thenReturn(expected);
 
     SseEmitter emitter = controller.sessions(jwt(), new MentorRequest("질문", 7L, null));
 
     verifyNoInteractions(snapshotClient);
-    verify(executor).execute(task.capture());
-    task.getValue().run();
-    verify(service).streamAnswer(42L, "질문", 7L, null, emitter);
-    assertThat(emitter).isNotNull();
+    verify(coordinator).start(42L, "질문", 7L, null);
+    assertThat(emitter).isSameAs(expected);
   }
 
   @Test
   void approvedSnapshotIsResolvedSynchronouslyAndPassedUnchanged() {
     MentorSnapshotContext approved =
-        new MentorSnapshotContext(23L, "{\"snapshotId\":23}", "{\"fieldsIncluded\":[],\"content\":{}}");
-    org.mockito.Mockito.when(snapshotClient.consume(23L, "final-jwt")).thenReturn(approved);
-    ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+        new MentorSnapshotContext(23L, "{\"snapshotId\":23}",
+            "{\"fieldsIncluded\":[],\"content\":{}}");
+    when(snapshotClient.consume(23L, "final-jwt")).thenReturn(approved);
+    SseEmitter expected = new SseEmitter();
+    when(coordinator.start(42L, "질문", 7L, approved)).thenReturn(expected);
 
     SseEmitter emitter = controller.sessions(jwt(), new MentorRequest("질문", 7L, 23L));
 
     verify(snapshotClient).consume(23L, "final-jwt");
-    verify(executor).execute(task.capture());
-    task.getValue().run();
-    verify(service).streamAnswer(42L, "질문", 7L, approved, emitter);
+    verify(coordinator).start(42L, "질문", 7L, approved);
+    assertThat(emitter).isSameAs(expected);
+  }
+
+  @Test
+  void capacityRejectionRemainsPreSseAndUsesTheDedicatedBusyCode() {
+    when(coordinator.start(42L, "질문", null, null)).thenThrow(new MentorBusyException());
+
+    assertThatThrownBy(() -> controller.sessions(jwt(), new MentorRequest("질문", null, null)))
+        .isInstanceOf(MentorBusyException.class)
+        .satisfies(failure -> assertThat(((MentorBusyException) failure).code().name())
+            .isEqualTo("MENTOR_BUSY"))
+        .hasMessage("mentor is busy; retry later");
+
+    verifyNoInteractions(snapshotClient);
   }
 
   private Jwt jwt() {

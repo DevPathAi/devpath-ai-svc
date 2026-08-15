@@ -34,10 +34,14 @@ class MentorServiceEmbeddingReuseTest {
 
     var contextAssembler = new MentorContextAssembler();
 
+    var mapper = JsonMapper.builder().build();
+    var persistence = mock(MentorPersistenceService.class);
     var service = new MentorService(contextAssembler, referenceService, knowledgeService,
-        mock(AiMentorClient.class), mock(MentorPersistenceService.class), JsonMapper.builder().build());
+        mock(AiMentorClient.class), mapper);
+    var terminal = new MentorSessionTerminal(persistence, mapper, new SseEmitter(),
+        1L, "질문", null, MentorContextAssembler.EMPTY_CONTEXT_JSON);
 
-    service.streamAnswer(1L, "질문", null, null, mock(SseEmitter.class));
+    service.streamAnswer("질문", null, terminal);
 
     verify(ollamaClient, times(1)).embed(any());
   }

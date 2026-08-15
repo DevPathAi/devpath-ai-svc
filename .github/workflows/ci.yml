@@ -43,8 +43,79 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  image:
+  release-model-eval:
     needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      gitops-revision: ${{ steps.gitops-revision.outputs.sha }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          app-id: ${{ secrets.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: DevPathAi
+          repositories: devpath-gitops
+      - uses: actions/checkout@v6
+        with:
+          repository: DevPathAi/devpath-gitops
+          token: ${{ steps.app-token.outputs.token }}
+          path: gitops
+      - name: Install kustomize
+        run: |
+          curl -sLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
+          tar -xzf kustomize.tar.gz && sudo mv kustomize /usr/local/bin/
+      - name: Bind exact GitOps revision
+        id: gitops-revision
+        run: echo "sha=$(git -C gitops rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Render production Mentor configuration
+        run: |
+          mkdir -p build/release-eval
+          kustomize build gitops/apps/devpath-ai-svc/base -o build/release-eval/rendered.yaml
+      - name: Generate immutable release evaluation manifest
+        run: ./gradlew generateMentorReleaseEvalManifest --refresh-dependencies --no-build-cache
+        env: &mentor-eval-env
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MENTOR_EVAL_RELEASE_ID: devpath-ai-${{ github.sha }}
+          MENTOR_EVAL_SOURCE_REVISION: ${{ github.sha }}
+          MENTOR_EVAL_GITOPS_REVISION: ${{ steps.gitops-revision.outputs.sha }}
+          MENTOR_EVAL_RENDERED_CONFIG: ${{ github.workspace }}/build/release-eval/rendered.yaml
+          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v1.json
+          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v1.json
+          MENTOR_EVAL_OLLAMA_BASE_URL: ${{ vars.MENTOR_EVAL_OLLAMA_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Evaluate both manifest models
+        run: >-
+          ./gradlew test -Dgroups=eval
+          --tests ai.devpath.aigw.mentor.eval.GoldenMentorInjectionEvalTest
+          --refresh-dependencies --no-build-cache --rerun-tasks
+        env: *mentor-eval-env
+      - name: Validate fresh release evidence
+        run: ./gradlew verifyMentorReleaseEvalEvidence --refresh-dependencies --no-build-cache
+        env: *mentor-eval-env
+      - name: Publish release evaluation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mentor-release-eval-${{ github.sha }}
+          path: |
+            build/release-eval/mentor-release-eval-manifest-v1.json
+            build/release-eval/mentor-release-eval-evidence-v1.json
+          if-no-files-found: error
+          retention-days: 90
+
+  image:
+    needs: [build, release-model-eval]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -75,7 +146,7 @@ jobs:
             ghcr.io/devpathai/devpath-ai-svc:main
 
   deploy:
-    needs: image
+    needs: [image, release-model-eval]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -91,6 +162,10 @@ jobs:
           repository: DevPathAi/devpath-gitops
           token: ${{ steps.app-token.outputs.token }}
           path: gitops
+      - name: Verify evaluated GitOps revision is still current
+        run: >-
+          test "$(git -C gitops rev-parse HEAD)" =
+          "${{ needs.release-model-eval.outputs.gitops-revision }}"
       - name: Install kustomize
         run: |
           curl -sLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz

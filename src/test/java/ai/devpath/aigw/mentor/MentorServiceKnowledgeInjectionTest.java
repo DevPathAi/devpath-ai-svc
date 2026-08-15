@@ -45,10 +45,13 @@ class MentorServiceKnowledgeInjectionTest {
 
     var client = new CapturingClient();
     var persistence = mock(MentorPersistenceService.class);
+    var mapper = JsonMapper.builder().build();
     var service = new MentorService(contextAssembler, referenceService, knowledgeService,
-        client, persistence, JsonMapper.builder().build());
+        client, mapper);
+    var terminal = new MentorSessionTerminal(persistence, mapper, new SseEmitter(),
+        1L, "Pod Identity가 뭔가요?", null, MentorContextAssembler.EMPTY_CONTEXT_JSON);
 
-    service.streamAnswer(1L, "Pod Identity가 뭔가요?", null, null, new SseEmitter());
+    service.streamAnswer("Pod Identity가 뭔가요?", null, terminal);
 
     assertThat(client.captured.get()).isNotNull();
     assertThat(client.captured.get().referenceDocs()).containsExactly(chunk);
@@ -65,10 +68,14 @@ class MentorServiceKnowledgeInjectionTest {
     when(knowledgeService.findByEmbedding(any())).thenReturn(List.of());   // 검색 실패 → 빈 리스트
 
     var client = new CapturingClient();
+    var persistence = mock(MentorPersistenceService.class);
+    var mapper = JsonMapper.builder().build();
     var service = new MentorService(contextAssembler, referenceService, knowledgeService,
-        client, mock(MentorPersistenceService.class), JsonMapper.builder().build());
+        client, mapper);
+    var terminal = new MentorSessionTerminal(persistence, mapper, new SseEmitter(),
+        1L, "질문", null, MentorContextAssembler.EMPTY_CONTEXT_JSON);
 
-    service.streamAnswer(1L, "질문", null, null, new SseEmitter());
+    service.streamAnswer("질문", null, terminal);
 
     assertThat(client.captured.get().referenceDocs()).isEmpty();
   }

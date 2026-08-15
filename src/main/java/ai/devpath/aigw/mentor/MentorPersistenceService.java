@@ -31,11 +31,21 @@ public class MentorPersistenceService {
   @Transactional
   public long saveFailed(long userId, String question, Long contentId,
       String contextSnapshotJson, String errorCode) {
+    return saveFailed(userId, question, contentId, "", contextSnapshotJson, "[]", null,
+        errorCode);
+  }
+
+  @Transactional
+  public long saveFailed(long userId, String question, Long contentId, String partialAnswer,
+      String contextSnapshotJson, String referenceLinksJson, String provider, String errorCode) {
     AiMentorSession s = new AiMentorSession();
     s.setUserId(userId);
     s.setQuestion(question);
     s.setContentId(contentId);
+    s.setAnswer(partialAnswer == null ? "" : partialAnswer);
     s.setContextSnapshot(contextSnapshotJson == null ? "{}" : contextSnapshotJson);
+    s.setReferenceLinks(referenceLinksJson == null ? "[]" : referenceLinksJson);
+    s.setProvider(provider);
     s.setStatus("FAILED");
     s.setErrorCode(errorCode);
     return repo.save(s).getId();

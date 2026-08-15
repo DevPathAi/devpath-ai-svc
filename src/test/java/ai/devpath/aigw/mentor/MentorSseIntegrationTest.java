@@ -67,11 +67,13 @@ class MentorSseIntegrationTest {
 
     assertThat(body).contains("token");
     assertThat(body).contains("references");
+    assertThat(body).contains("event:terminal");
+    assertThat(body).contains("\"status\":\"DONE\"");
     assertThat(repo.count()).isEqualTo(before + 1);
   }
 
   @Test
-  void llmFailureMidStreamEmitsErrorEventWithEnvelopeAndCompletes() throws Exception {
+  void llmFailureMidStreamEmitsOneExplicitFailedTerminalAndCompletes() throws Exception {
     when(sandboxClient.recentByUser(42L, 5)).thenReturn(List.of());
     when(ollamaClient.embed(List.of("비동기란?")))
         .thenReturn(new EmbedResponse(List.of(Collections.nCopies(768, 0.1))));
@@ -92,7 +94,9 @@ class MentorSseIntegrationTest {
         .andExpect(status().isOk())
         .andReturn().getResponse().getContentAsString();
 
-    assertThat(body).contains("event:error");
-    assertThat(body).contains("\"code\":\"INTERNAL_ERROR\"");
+    assertThat(body).contains("event:terminal");
+    assertThat(body).contains("\"status\":\"FAILED\"");
+    assertThat(body).contains("\"code\":\"AI_PROVIDER_UNAVAILABLE\"");
+    assertThat(body).doesNotContain("event:error");
   }
 }

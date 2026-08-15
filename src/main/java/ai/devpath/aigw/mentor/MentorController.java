@@ -1,7 +1,6 @@
 package ai.devpath.aigw.mentor;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,21 +14,16 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RequestMapping("/ai-mentor")
 public class MentorController {
 
-  private final MentorService mentorService;
+  private final MentorExecutionCoordinator coordinator;
   private final MentorSnapshotClient snapshotClient;
-  private final AsyncTaskExecutor mentorExecutor;
   private final boolean enabled;
-  private final long timeoutMs;
 
-  public MentorController(MentorService mentorService, MentorSnapshotClient snapshotClient,
-      @org.springframework.beans.factory.annotation.Qualifier("mentorExecutor") AsyncTaskExecutor mentorExecutor,
-      @Value("${devpath.mentor.enabled:true}") boolean enabled,
-      @Value("${devpath.mentor.timeout:PT60S}") java.time.Duration timeout) {
-    this.mentorService = mentorService;
+  public MentorController(MentorExecutionCoordinator coordinator,
+      MentorSnapshotClient snapshotClient,
+      @Value("${devpath.mentor.enabled:true}") boolean enabled) {
+    this.coordinator = coordinator;
     this.snapshotClient = snapshotClient;
-    this.mentorExecutor = mentorExecutor;
     this.enabled = enabled;
-    this.timeoutMs = timeout.toMillis();
   }
 
   @PostMapping("/sessions")
@@ -44,11 +38,6 @@ public class MentorController {
     MentorSnapshotContext approvedContext = req.contextSnapshotId() == null
         ? null
         : snapshotClient.consume(req.contextSnapshotId(), jwt.getTokenValue());
-    SseEmitter emitter = new SseEmitter(timeoutMs);
-    emitter.onTimeout(emitter::complete);
-    mentorExecutor.execute(() ->
-        mentorService.streamAnswer(
-            userId, req.message(), req.contentId(), approvedContext, emitter));
-    return emitter;
+    return coordinator.start(userId, req.message(), req.contentId(), approvedContext);
   }
 }

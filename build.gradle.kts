@@ -56,12 +56,34 @@ dependencies {
 }
 
 tasks.withType<Test> {
+	val groups = System.getProperty("groups")
 	useJUnitPlatform {
-		val groups = System.getProperty("groups")
 		if (groups.isNullOrBlank()) {
 			excludeTags("eval")
 		} else if (groups == "eval") {
 			includeTags("eval")
 		}
 	}
+	if (groups == "eval") {
+		outputs.upToDateWhen { false }
+		outputs.cacheIf("live release eval evidence cannot be reused") { false }
+	}
+}
+
+tasks.register<JavaExec>("generateMentorReleaseEvalManifest") {
+	group = "verification"
+	description = "Generate the exact hash-bound Mentor release evaluation manifest"
+	dependsOn(tasks.testClasses)
+	classpath = sourceSets["test"].runtimeClasspath
+	mainClass.set("ai.devpath.aigw.mentor.eval.MentorReleaseEvalManifestCli")
+	args("generate-manifest")
+}
+
+tasks.register<JavaExec>("verifyMentorReleaseEvalEvidence") {
+	group = "verification"
+	description = "Fail closed unless fresh Mentor release evaluation evidence matches the manifest"
+	dependsOn(tasks.testClasses)
+	classpath = sourceSets["test"].runtimeClasspath
+	mainClass.set("ai.devpath.aigw.mentor.eval.MentorReleaseEvalManifestCli")
+	args("verify-evidence")
 }

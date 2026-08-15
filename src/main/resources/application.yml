@@ -46,10 +46,13 @@ devpath:
   mentor:
     provider: ${MENTOR_PROVIDER:mock}
     fallback: ${MENTOR_FALLBACK:}
+    claude-base-url: ${MENTOR_CLAUDE_BASE_URL:https://api.anthropic.com}
     claude-model: ${MENTOR_CLAUDE_MODEL:claude-sonnet-4-6}
     ollama-model: ${MENTOR_OLLAMA_MODEL:qwen2.5:7b}
     enabled: ${MENTOR_ENABLED:true}
-    timeout: ${MENTOR_TIMEOUT:PT60S}
+    provider-timeout: ${MENTOR_PROVIDER_TIMEOUT:PT50S}
+    request-timeout: ${MENTOR_REQUEST_TIMEOUT:PT55S}
+    sse-timeout: ${MENTOR_SSE_TIMEOUT:PT60S}
   lcs:
     base-url: ${LCS_URI:http://localhost:8087}
     timeout: ${LCS_TIMEOUT:PT2S}

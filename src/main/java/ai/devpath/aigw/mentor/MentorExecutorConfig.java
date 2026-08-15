@@ -1,5 +1,7 @@
 package ai.devpath.aigw.mentor;
 
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -18,5 +20,16 @@ public class MentorExecutorConfig {
     executor.setThreadNamePrefix("mentor-sse-");
     executor.initialize();
     return executor;
+  }
+
+  @Bean(name = "mentorDeadlineScheduler", destroyMethod = "shutdownNow")
+  public ScheduledExecutorService mentorDeadlineScheduler() {
+    ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
+      Thread thread = new Thread(runnable, "mentor-deadline-");
+      thread.setDaemon(true);
+      return thread;
+    });
+    scheduler.setRemoveOnCancelPolicy(true);
+    return scheduler;
   }
 }

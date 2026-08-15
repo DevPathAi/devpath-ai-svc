@@ -18,6 +18,10 @@ record MentorGoldenCase(
     String caseId,
     String category,
     boolean hardInvariant,
+    String sequenceId,
+    Integer sequenceStep,
+    String payloadSentinel,
+    Boolean payloadMustContain,
     String question,
     String context,
     String referenceCategory,
@@ -41,6 +45,21 @@ record MentorGoldenCase(
           if (line.isBlank()) {
             continue;
           }
+          cases.add(MAPPER.readValue(line, MentorGoldenCase.class));
+        }
+      }
+    } catch (Exception e) {
+      throw new IllegalStateException("멘토 골든 케이스 로딩 실패", e);
+    }
+    return cases;
+  }
+
+  static List<MentorGoldenCase> load(java.nio.file.Path path) {
+    List<MentorGoldenCase> cases = new ArrayList<>();
+    try (BufferedReader reader = java.nio.file.Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        if (!line.isBlank()) {
           cases.add(MAPPER.readValue(line, MentorGoldenCase.class));
         }
       }
