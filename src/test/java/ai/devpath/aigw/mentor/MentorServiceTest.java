@@ -34,8 +34,12 @@ class MentorServiceTest {
   private final JsonMapper mapper = JsonMapper.builder().build();
 
   private MentorService service() {
+    return service(mentorClient);
+  }
+
+  private MentorService service(AiMentorClient client) {
     return new MentorService(
-        contextAssembler, referenceService, knowledgeService, mentorClient, mapper);
+        contextAssembler, referenceService, knowledgeService, client, mapper);
   }
 
   @Test
@@ -50,13 +54,14 @@ class MentorServiceTest {
     when(referenceService.embedQuestion("비동기란?")).thenReturn(embedding);
     when(referenceService.findByEmbedding(embedding, null))
         .thenReturn(List.of(new SimilarContent(1, "a", "t")));
-    when(mentorClient.providerName()).thenReturn("MOCK");
     doAnswer(invocation -> {
       Consumer<String> sink = invocation.getArgument(1);
+      Consumer<String> provider = invocation.getArgument(2);
+      provider.accept("MOCK");
       sink.accept("비동기는 ");
       sink.accept("Future입니다.");
       return null;
-    }).when(mentorClient).stream(any(), any());
+    }).when(mentorClient).stream(any(), any(), any());
     RecordingEmitter emitter = new RecordingEmitter();
 
     service().streamAnswer("비동기란?", approved,
@@ -65,7 +70,7 @@ class MentorServiceTest {
     verify(persistence).saveDone(eq(42L), eq("비동기란?"), eq(7L),
         eq("비동기는 Future입니다."), eq(approved.envelopeJson()), anyString(), eq("MOCK"));
     ArgumentCaptor<MentorInput> input = ArgumentCaptor.forClass(MentorInput.class);
-    verify(mentorClient).stream(input.capture(), any());
+    verify(mentorClient).stream(input.capture(), any(), any());
     assertThat(input.getValue().contextText()).isEqualTo(approved.providerContextJson());
     assertThat(emitter.data).anyMatch(value -> value.contains("Future입니다."));
     assertThat(emitter.terminalPayloads()).containsExactly("{\"status\":\"DONE\"}");
@@ -75,10 +80,11 @@ class MentorServiceTest {
   void providerTimeoutBeforeFirstTokenPersistsOneSafeFailedTerminal() {
     String empty = MentorContextAssembler.EMPTY_CONTEXT_JSON;
     when(contextAssembler.assemble(null)).thenReturn(new MentorContext("", empty, null));
-    when(mentorClient.providerName()).thenReturn("OLLAMA");
     doAnswer(invocation -> {
+      Consumer<String> provider = invocation.getArgument(2);
+      provider.accept("OLLAMA");
       throw new RuntimeException(new HttpTimeoutException("raw current_code=secret"));
-    }).when(mentorClient).stream(any(), any());
+    }).when(mentorClient).stream(any(), any(), any());
     RecordingEmitter emitter = new RecordingEmitter();
 
     service().streamAnswer("q", null, terminal(emitter, 42L, "q", null, empty));
@@ -97,12 +103,13 @@ class MentorServiceTest {
   void providerTimeoutAfterTokenPreservesOnlyDeliveredPartialAnswer() {
     String empty = MentorContextAssembler.EMPTY_CONTEXT_JSON;
     when(contextAssembler.assemble(null)).thenReturn(new MentorContext("", empty, null));
-    when(mentorClient.providerName()).thenReturn("CLAUDE");
     doAnswer(invocation -> {
       Consumer<String> sink = invocation.getArgument(1);
+      Consumer<String> provider = invocation.getArgument(2);
+      provider.accept("CLAUDE");
       sink.accept("부분 답변");
       throw new RuntimeException(new HttpTimeoutException("raw prompt=secret"));
-    }).when(mentorClient).stream(any(), any());
+    }).when(mentorClient).stream(any(), any(), any());
     RecordingEmitter emitter = new RecordingEmitter();
 
     service().streamAnswer("q", null, terminal(emitter, 42L, "q", 7L, empty));
@@ -118,13 +125,14 @@ class MentorServiceTest {
   void clientAbortPreservesEarlierTokensButNotTheTokenWhoseSendFailed() {
     String empty = MentorContextAssembler.EMPTY_CONTEXT_JSON;
     when(contextAssembler.assemble(null)).thenReturn(new MentorContext("", empty, null));
-    when(mentorClient.providerName()).thenReturn("OLLAMA");
     doAnswer(invocation -> {
       Consumer<String> sink = invocation.getArgument(1);
+      Consumer<String> provider = invocation.getArgument(2);
+      provider.accept("OLLAMA");
       sink.accept("전달된 토큰");
       sink.accept("전송 실패 토큰");
       return null;
-    }).when(mentorClient).stream(any(), any());
+    }).when(mentorClient).stream(any(), any(), any());
     FailingSecondTokenEmitter emitter = new FailingSecondTokenEmitter();
 
     service().streamAnswer("q", null, terminal(emitter, 42L, "q", null, empty));
@@ -139,13 +147,17 @@ class MentorServiceTest {
   void noSnapshotSendsZeroSupplementalContextAndPersistsCanonicalEmptyEnvelope() {
     String empty = MentorContextAssembler.EMPTY_CONTEXT_JSON;
     when(contextAssembler.assemble(null)).thenReturn(new MentorContext("", empty, null));
-    when(mentorClient.providerName()).thenReturn("MOCK");
+    doAnswer(invocation -> {
+      Consumer<String> provider = invocation.getArgument(2);
+      provider.accept("MOCK");
+      return null;
+    }).when(mentorClient).stream(any(), any(), any());
     ArgumentCaptor<MentorInput> input = ArgumentCaptor.forClass(MentorInput.class);
 
     service().streamAnswer("q", null,
         terminal(new RecordingEmitter(), 42L, "q", 7L, empty));
 
-    verify(mentorClient).stream(input.capture(), any());
+    verify(mentorClient).stream(input.capture(), any(), any());
     assertThat(input.getValue().contextText()).isEmpty();
     verify(persistence).saveDone(eq(42L), eq("q"), eq(7L), eq(""), eq(empty),
         eq("[]"), eq("MOCK"));
@@ -153,10 +165,46 @@ class MentorServiceTest {
         anyString(), anyString(), any(), anyString());
   }
 
+  @Test
+  void fallbackPartialFailurePersistsTheActualFallbackProvider() {
+    String empty = MentorContextAssembler.EMPTY_CONTEXT_JSON;
+    when(contextAssembler.assemble(null)).thenReturn(new MentorContext("", empty, null));
+    AiMentorClient primary = client("PRIMARY", (input, sink) -> {
+      throw new RuntimeException("primary unavailable");
+    });
+    AiMentorClient fallback = client("FALLBACK", (input, sink) -> {
+      sink.accept("fallback partial");
+      throw new RuntimeException("fallback interrupted");
+    });
+
+    service(new FallbackMentorClient(List.of(primary, fallback))).streamAnswer(
+        "q", null, terminal(new RecordingEmitter(), 42L, "q", 7L, empty));
+
+    verify(persistence).saveFailed(42L, "q", 7L, "fallback partial", empty, "[]",
+        "FALLBACK", "AI_PROVIDER_UNAVAILABLE");
+  }
+
+  private static AiMentorClient client(String provider, StreamBehavior behavior) {
+    return new AiMentorClient() {
+      @Override public void stream(MentorInput input, Consumer<String> tokenSink) {
+        behavior.stream(input, tokenSink);
+      }
+
+      @Override public String providerName() {
+        return provider;
+      }
+    };
+  }
+
+  @FunctionalInterface
+  private interface StreamBehavior {
+    void stream(MentorInput input, Consumer<String> tokenSink);
+  }
+
   private MentorSessionTerminal terminal(SseEmitter emitter, long userId, String question,
       Long contentId, String snapshotJson) {
     return new MentorSessionTerminal(
-        persistence, mapper, emitter, userId, question, contentId, snapshotJson);
+        persistence, mapper, emitter, userId, question, contentId, snapshotJson, true);
   }
 
   static class RecordingEmitter extends SseEmitter {

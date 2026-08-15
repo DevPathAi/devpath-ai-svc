@@ -50,10 +50,8 @@ public class MentorService {
       List<KnowledgeChunk> referenceDocs = embedding == null
           ? List.of() : knowledgeService.findByEmbedding(embedding);
       terminal.throwIfClosed();
-      terminal.recordProvider(mentorClient.providerName());
       mentorClient.stream(new MentorInput(question, context.promptText(), referenceDocs),
-          terminal::sendToken);
-      terminal.recordProvider(mentorClient.providerName());
+          terminal::sendToken, terminal::selectProvider);
       terminal.completeDone();
     } catch (MentorSessionTerminal.MentorClientDisconnectedException ignored) {
       terminal.completeFailed("CLIENT_ABORTED", "stream aborted");

@@ -53,6 +53,7 @@ devpath:
     provider-timeout: ${MENTOR_PROVIDER_TIMEOUT:PT50S}
     request-timeout: ${MENTOR_REQUEST_TIMEOUT:PT55S}
     sse-timeout: ${MENTOR_SSE_TIMEOUT:PT60S}
+    heartbeat-interval: ${MENTOR_HEARTBEAT_INTERVAL:PT15S}
   lcs:
     base-url: ${LCS_URI:http://localhost:8087}
     timeout: ${LCS_TIMEOUT:PT2S}

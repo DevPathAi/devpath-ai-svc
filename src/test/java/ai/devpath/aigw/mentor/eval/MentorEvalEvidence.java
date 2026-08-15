@@ -16,6 +16,10 @@ record MentorEvalEvidence(
     String sourceRevision,
     String gitOpsRevision,
     String renderedConfigSha256,
+    String sharedCoordinate,
+    String sharedArtifactSha256,
+    String bootJarSha256,
+    String runtimeDependencyGraphSha256,
     String promptSha256,
     String fixtureRevision,
     String fixtureSha256,
@@ -26,7 +30,7 @@ record MentorEvalEvidence(
     double requiredQualityRate,
     List<ModelResult> models) {
 
-  private static final String SCHEMA = "mentor-release-eval-evidence/v1";
+  private static final String SCHEMA = "mentor-release-eval-evidence/v2";
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
   static MentorEvalEvidence passing(MentorReleaseEvalManifest manifest, String manifestSha256,
@@ -51,7 +55,9 @@ record MentorEvalEvidence(
                 && result.qualityRate() >= manifest.requiredQualityRate());
     return new MentorEvalEvidence(
         SCHEMA, manifestSha256, manifest.releaseId(), manifest.sourceRevision(),
-        manifest.gitOpsRevision(), manifest.renderedConfigSha256(), manifest.promptSha256(),
+        manifest.gitOpsRevision(), manifest.renderedConfigSha256(), manifest.sharedCoordinate(),
+        manifest.sharedArtifactSha256(), manifest.bootJarSha256(),
+        manifest.runtimeDependencyGraphSha256(), manifest.promptSha256(),
         manifest.fixtureRevision(), manifest.fixtureSha256(), generatedAt.toString(),
         passed ? "PASS" : "FAIL",
         hardRate, qualityRate, manifest.requiredQualityRate(), List.copyOf(results));
@@ -64,6 +70,10 @@ record MentorEvalEvidence(
         || !manifest.sourceRevision().equals(sourceRevision)
         || !manifest.gitOpsRevision().equals(gitOpsRevision)
         || !manifest.renderedConfigSha256().equals(renderedConfigSha256)
+        || !manifest.sharedCoordinate().equals(sharedCoordinate)
+        || !manifest.sharedArtifactSha256().equals(sharedArtifactSha256)
+        || !manifest.bootJarSha256().equals(bootJarSha256)
+        || !manifest.runtimeDependencyGraphSha256().equals(runtimeDependencyGraphSha256)
         || !manifest.promptSha256().equals(promptSha256)
         || !manifest.fixtureRevision().equals(fixtureRevision)
         || !manifest.fixtureSha256().equals(fixtureSha256)
@@ -113,7 +123,9 @@ record MentorEvalEvidence(
 
   MentorEvalEvidence withManifestSha256(String value) {
     return new MentorEvalEvidence(schemaVersion, value, releaseId, sourceRevision, gitOpsRevision,
-        renderedConfigSha256, promptSha256, fixtureRevision, fixtureSha256, generatedAt, result,
+        renderedConfigSha256, sharedCoordinate, sharedArtifactSha256, bootJarSha256,
+        runtimeDependencyGraphSha256, promptSha256, fixtureRevision, fixtureSha256,
+        generatedAt, result,
         hardInvariantRate, qualityRate, requiredQualityRate, models);
   }
 

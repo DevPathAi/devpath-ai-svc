@@ -32,16 +32,22 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      # --refresh-dependencies: devpath-shared 0.0.1-SNAPSHOT(changing)를 매 CI 재해소.
-      # Gradle SNAPSHOT 24h TTL + 캐시로 빌드 A(community 이벤트) 미반영 stale jar가 잡혀
-      # compile 실패한 사례 방지(슬라이스 #8 빌드 C).
-      - run: ./gradlew build --refresh-dependencies
+      - run: >-
+          ./gradlew clean build prepareMentorReleaseArtifacts
+          -DimmutableSharedContract=true
         env:
           DB_URL: jdbc:postgresql://localhost:5432/devpath
           DB_USER: devpath
           DB_PASSWORD: localdev
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish exact release inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mentor-release-inputs-${{ github.sha }}
+          path: build/release-inputs/*
+          if-no-files-found: error
+          retention-days: 1
 
   release-model-eval:
     needs: build
@@ -59,6 +65,11 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
+      - name: Download exact build inputs
+        uses: actions/download-artifact@v4
+        with:
+          name: mentor-release-inputs-${{ github.sha }}
+          path: build/evaluated-release-inputs
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
@@ -71,6 +82,8 @@ jobs:
           repository: DevPathAi/devpath-gitops
           token: ${{ steps.app-token.outputs.token }}
           path: gitops
+          ref: main
+          fetch-depth: 1
       - name: Install kustomize
         run: |
           curl -sLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
@@ -83,7 +96,9 @@ jobs:
           mkdir -p build/release-eval
           kustomize build gitops/apps/devpath-ai-svc/base -o build/release-eval/rendered.yaml
       - name: Generate immutable release evaluation manifest
-        run: ./gradlew generateMentorReleaseEvalManifest --refresh-dependencies --no-build-cache
+        run: |
+          ./gradlew writeMentorCurrentRuntimeDependencyGraph --no-build-cache
+          ./gradlew generateMentorReleaseEvalManifest --no-build-cache
         env: &mentor-eval-env
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,26 +106,31 @@ jobs:
           MENTOR_EVAL_SOURCE_REVISION: ${{ github.sha }}
           MENTOR_EVAL_GITOPS_REVISION: ${{ steps.gitops-revision.outputs.sha }}
           MENTOR_EVAL_RENDERED_CONFIG: ${{ github.workspace }}/build/release-eval/rendered.yaml
-          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v1.json
-          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v1.json
+          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v2.json
+          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v2.json
+          MENTOR_EVAL_BOOT_JAR: ${{ github.workspace }}/build/evaluated-release-inputs/devpath-ai-svc-0.0.1-SNAPSHOT.jar
+          MENTOR_EVAL_SHARED_ARTIFACT: ${{ github.workspace }}/build/evaluated-release-inputs/devpath-shared-0.0.1-et9.20260816.jar
+          MENTOR_EVAL_DEPENDENCY_GRAPH: ${{ github.workspace }}/build/evaluated-release-inputs/runtime-dependency-graph.txt
+          MENTOR_EVAL_CURRENT_DEPENDENCY_GRAPH: ${{ github.workspace }}/build/release-eval/current-runtime-dependency-graph.txt
+          MENTOR_EVAL_GRADLE_PROPERTIES: ${{ github.workspace }}/gradle.properties
           MENTOR_EVAL_OLLAMA_BASE_URL: ${{ vars.MENTOR_EVAL_OLLAMA_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - name: Evaluate both manifest models
         run: >-
           ./gradlew test -Dgroups=eval
           --tests ai.devpath.aigw.mentor.eval.GoldenMentorInjectionEvalTest
-          --refresh-dependencies --no-build-cache --rerun-tasks
+          --no-build-cache --rerun-tasks
         env: *mentor-eval-env
       - name: Validate fresh release evidence
-        run: ./gradlew verifyMentorReleaseEvalEvidence --refresh-dependencies --no-build-cache
+        run: ./gradlew verifyMentorReleaseEvalEvidence --no-build-cache
         env: *mentor-eval-env
       - name: Publish release evaluation evidence
         uses: actions/upload-artifact@v4
         with:
           name: mentor-release-eval-${{ github.sha }}
           path: |
-            build/release-eval/mentor-release-eval-manifest-v1.json
-            build/release-eval/mentor-release-eval-evidence-v1.json
+            build/release-eval/mentor-release-eval-manifest-v2.json
+            build/release-eval/mentor-release-eval-evidence-v2.json
           if-no-files-found: error
           retention-days: 90
 
@@ -123,15 +143,11 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - name: Download evaluated bootJar
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew bootJar --refresh-dependencies
-        env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: mentor-release-inputs-${{ github.sha }}
+          path: build/libs
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -150,6 +166,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        with:
+          path: source
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
@@ -162,10 +181,14 @@ jobs:
           repository: DevPathAi/devpath-gitops
           token: ${{ steps.app-token.outputs.token }}
           path: gitops
+          ref: main
+          fetch-depth: 0
       - name: Verify evaluated GitOps revision is still current
-        run: >-
-          test "$(git -C gitops rev-parse HEAD)" =
-          "${{ needs.release-model-eval.outputs.gitops-revision }}"
+        working-directory: gitops
+        run: |
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "${{ needs.release-model-eval.outputs.gitops-revision }}"
+          test "$(git rev-parse refs/remotes/origin/main)" = "${{ needs.release-model-eval.outputs.gitops-revision }}"
       - name: Install kustomize
         run: |
           curl -sLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
@@ -179,6 +202,11 @@ jobs:
           git config user.name "devpath-gitops-bot[bot]"
           git config user.email "devpath-gitops-bot[bot]@users.noreply.github.com"
           git add -A
-          git diff --cached --quiet && echo "no change" && exit 0
+          if git diff --cached --quiet; then
+            bash ../source/.github/scripts/push-evaluated-gitops.sh \
+              "${{ needs.release-model-eval.outputs.gitops-revision }}" verify-only
+            exit 0
+          fi
           git commit -m "deploy(devpath-ai-svc): ${{ github.sha }}"
-          for i in 1 2 3; do git push && break || (git pull --rebase && sleep 2); done
+          bash ../source/.github/scripts/push-evaluated-gitops.sh \
+            "${{ needs.release-model-eval.outputs.gitops-revision }}"

@@ -73,6 +73,7 @@ class MentorEvalConfigurationTest {
     environment.put("MENTOR_EVAL_GITOPS_REVISION", "b".repeat(40));
     environment.put("MENTOR_EVAL_RENDERED_CONFIG", rendered.toString());
     environment.put("MENTOR_EVAL_OLLAMA_BASE_URL", "https://eval-ollama.example.test");
+    MentorReleaseArtifactFixture.addToEnvironment(environment, temp.resolve("release-artifacts"));
     return environment;
   }
 

@@ -80,6 +80,32 @@ class FallbackMentorClientTest {
   }
 
   @Test
+  void fallbackSelectionIsReportedBeforeItsFirstTokenAndSurvivesPartialFailure() {
+    FakeClient primary = new FakeClient("PRIMARY", List.of("not-emitted"), 0);
+    FakeClient fallback = new FakeClient("FALLBACK", List.of("partial", "late"), 1);
+    FallbackMentorClient client = new FallbackMentorClient(List.of(primary, fallback));
+    List<String> selected = new ArrayList<>();
+    List<String> out = new ArrayList<>();
+
+    assertThatThrownBy(() -> client.stream(input, out::add, selected::add))
+        .isInstanceOf(RuntimeException.class);
+
+    assertThat(selected).containsExactly("PRIMARY", "FALLBACK");
+    assertThat(out).containsExactly("partial");
+  }
+
+  @Test
+  void callbackAwareStreamDoesNotLeakSelectionIntoTheReusedWorkerThread() {
+    FakeClient primary = new FakeClient("PRIMARY", List.of("not-emitted"), 0);
+    FakeClient fallback = new FakeClient("FALLBACK", List.of("answer"), -1);
+    FallbackMentorClient client = new FallbackMentorClient(List.of(primary, fallback));
+
+    client.stream(input, ignored -> {}, ignored -> {});
+
+    assertThat(client.providerName()).isEqualTo("PRIMARY");
+  }
+
+  @Test
   void emptyDelegates_rejected() {
     assertThatThrownBy(() -> new FallbackMentorClient(List.of()))
         .isInstanceOf(IllegalArgumentException.class);

@@ -11,8 +11,10 @@ class MentorTimeoutPolicyTest {
   @Test
   void providerDeadlineIsStrictlyInsideRequestAndSseDeadlines() {
     MentorTimeoutPolicy policy = new MentorTimeoutPolicy(
-        Duration.ofSeconds(50), Duration.ofSeconds(55), Duration.ofSeconds(60));
+        Duration.ofSeconds(50), Duration.ofSeconds(55), Duration.ofSeconds(60),
+        Duration.ofSeconds(15));
 
+    assertThat(policy.heartbeatInterval()).isLessThan(policy.providerTimeout());
     assertThat(policy.providerTimeout()).isLessThan(policy.requestTimeout());
     assertThat(policy.requestTimeout()).isLessThan(policy.sseTimeout());
   }

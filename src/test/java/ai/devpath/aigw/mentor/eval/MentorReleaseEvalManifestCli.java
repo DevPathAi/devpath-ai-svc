@@ -23,9 +23,12 @@ public final class MentorReleaseEvalManifestCli {
         manifest.write(manifestPath);
         manifest.validate(inputs);
         System.out.printf(
-            "[mentor-eval-manifest] release=%s source=%s gitops=%s config=%s prompt=%s fixture=%s%n",
+            "[mentor-eval-manifest] release=%s source=%s gitops=%s config=%s shared=%s "
+                + "boot=%s graph=%s prompt=%s fixture=%s%n",
             manifest.releaseId(), manifest.sourceRevision(), manifest.gitOpsRevision(),
-            manifest.renderedConfigSha256(), manifest.promptSha256(), manifest.fixtureSha256());
+            manifest.renderedConfigSha256(), manifest.sharedArtifactSha256(),
+            manifest.bootJarSha256(), manifest.runtimeDependencyGraphSha256(),
+            manifest.promptSha256(), manifest.fixtureSha256());
       }
       case "verify-evidence" -> {
         MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.read(manifestPath);

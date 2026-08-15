@@ -18,6 +18,7 @@ class MentorReleaseWorkflowContractTest {
         Files.readString(Path.of(".github/workflows/ci.yml")));
     Map<String, Object> jobs = (Map<String, Object>) workflow.get("jobs");
     Map<String, Object> gate = (Map<String, Object>) jobs.get("release-model-eval");
+    Map<String, Object> build = (Map<String, Object>) jobs.get("build");
     Map<String, Object> image = (Map<String, Object>) jobs.get("image");
     Map<String, Object> deploy = (Map<String, Object>) jobs.get("deploy");
 
@@ -29,6 +30,14 @@ class MentorReleaseWorkflowContractTest {
         .contains("image", "release-model-eval");
 
     String gateText = gate.toString();
+    String buildText = build.toString();
+    String imageText = image.toString();
+    String deployText = deploy.toString();
+    assertThat(buildText).contains("prepareMentorReleaseArtifacts");
+    assertThat(buildText).contains("mentor-release-inputs-${{ github.sha }}");
+    assertThat(buildText).contains("actions/upload-artifact");
+    assertThat(gateText).contains("actions/download-artifact");
+    assertThat(gateText).contains("writeMentorCurrentRuntimeDependencyGraph");
     assertThat(gateText).contains("generateMentorReleaseEvalManifest");
     assertThat(gateText).contains("-Dgroups=eval");
     assertThat(gateText).contains("verifyMentorReleaseEvalEvidence");
@@ -39,7 +48,23 @@ class MentorReleaseWorkflowContractTest {
     assertThat(gateText).doesNotContain("MENTOR_EVAL_CLAUDE_BASE_URL");
     assertThat(gateText).doesNotContain("continue-on-error=true");
     assertThat(gateText).doesNotContain("always()");
-    assertThat(deploy.toString())
+    assertThat(gateText).contains("MENTOR_EVAL_BOOT_JAR");
+    assertThat(gateText).contains("MENTOR_EVAL_SHARED_ARTIFACT");
+    assertThat(gateText).contains("MENTOR_EVAL_DEPENDENCY_GRAPH");
+    assertThat(gateText).contains("MENTOR_EVAL_CURRENT_DEPENDENCY_GRAPH");
+    assertThat(gateText).contains("mentor-release-eval-manifest-v2.json");
+    assertThat(imageText).contains("actions/download-artifact");
+    assertThat(imageText).contains("mentor-release-inputs-${{ github.sha }}");
+    assertThat(imageText).doesNotContain("./gradlew bootJar", "--refresh-dependencies");
+    assertThat(deployText)
         .contains("needs.release-model-eval.outputs.gitops-revision");
+    assertThat(deployText).contains("bash ../source/.github/scripts/push-evaluated-gitops.sh");
+    assertThat(count(deployText, "bash ../source/.github/scripts/push-evaluated-gitops.sh"))
+        .isEqualTo(2);
+    assertThat(deployText).doesNotContain("pull --rebase", "for i in");
+  }
+
+  private static int count(String value, String needle) {
+    return (value.length() - value.replace(needle, "").length()) / needle.length();
   }
 }

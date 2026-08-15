@@ -25,12 +25,12 @@ class MentorReleaseEvalManifestTest {
     MentorReleaseEvalManifest.Inputs inputs = inputs(SOURCE, GITOPS, rendered());
 
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
-    Path path = temp.resolve("mentor-release-eval-manifest-v1.json");
+    Path path = temp.resolve("mentor-release-eval-manifest-v2.json");
     manifest.write(path);
     MentorReleaseEvalManifest loaded = MentorReleaseEvalManifest.read(path);
     loaded.validate(inputs);
 
-    assertThat(loaded.schemaVersion()).isEqualTo("mentor-release-eval/v1");
+    assertThat(loaded.schemaVersion()).isEqualTo("mentor-release-eval/v2");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::role)
         .containsExactly("primary", "fallback");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::provider)
@@ -39,6 +39,10 @@ class MentorReleaseEvalManifestTest {
         .containsExactly("qwen2.5:3b", "claude-sonnet-4-6");
     assertThat(loaded.fixtureSha256()).hasSize(64);
     assertThat(loaded.promptSha256()).hasSize(64);
+    assertThat(loaded.sharedCoordinate()).isEqualTo(MentorReleaseArtifactFixture.COORDINATE);
+    assertThat(loaded.sharedArtifactSha256()).hasSize(64);
+    assertThat(loaded.bootJarSha256()).hasSize(64);
+    assertThat(loaded.runtimeDependencyGraphSha256()).hasSize(64);
     assertThat(loaded.hardInvariantMinimum()).isEqualTo(1.0);
     assertThat(loaded.qualityMinimum()).isEqualTo(0.90);
   }
@@ -64,6 +68,27 @@ class MentorReleaseEvalManifestTest {
     MentorReleaseEvalManifest wrongPrompt = manifest.withPromptSha256("f".repeat(64));
     assertThatThrownBy(() -> wrongPrompt.validate(valid))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void rejectsWrongSharedBootJarOrDependencyGraphIdentity() throws Exception {
+    MentorReleaseEvalManifest.Inputs inputs = inputs(SOURCE, GITOPS, rendered());
+    MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
+
+    assertThatThrownBy(() -> manifest.withSharedCoordinate(
+        "ai.devpath:devpath-shared:0.0.1-et9.forged").validate(inputs))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> manifest.withSharedArtifactSha256("1".repeat(64)).validate(inputs))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> manifest.withBootJarSha256("2".repeat(64)).validate(inputs))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> manifest.withRuntimeDependencyGraphSha256("3".repeat(64))
+        .validate(inputs)).isInstanceOf(IllegalArgumentException.class);
+
+    Files.writeString(inputs.currentDependencyGraph(), "different graph\n");
+    assertThatThrownBy(() -> MentorReleaseEvalManifest.create(inputs))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("dependency graph");
   }
 
   @Test
@@ -146,9 +171,11 @@ class MentorReleaseEvalManifestTest {
     manifest.write(manifestPath);
     Instant now = Instant.parse("2026-08-16T12:00:00Z");
     MentorEvalEvidence malformed = new MentorEvalEvidence(
-        "mentor-release-eval-evidence/v1",
+        "mentor-release-eval-evidence/v2",
         MentorReleaseEvalManifest.sha256(manifestPath), manifest.releaseId(),
         manifest.sourceRevision(), manifest.gitOpsRevision(), manifest.renderedConfigSha256(),
+        manifest.sharedCoordinate(), manifest.sharedArtifactSha256(), manifest.bootJarSha256(),
+        manifest.runtimeDependencyGraphSha256(),
         manifest.promptSha256(), manifest.fixtureRevision(), manifest.fixtureSha256(),
         now.toString(), "PASS", Double.NaN, 0.95, manifest.requiredQualityRate(),
         List.of(
@@ -166,11 +193,15 @@ class MentorReleaseEvalManifestTest {
   private MentorReleaseEvalManifest.Inputs inputs(
       String source, String gitOps, Path rendered) {
     Path fixture = Path.of("src/test/resources/eval/golden-mentor-injection.jsonl");
+    MentorReleaseArtifactFixture.Artifacts artifacts =
+        MentorReleaseArtifactFixture.create(temp.resolve("release-artifacts"));
     return new MentorReleaseEvalManifest.Inputs(
         "devpath-ai-" + source, source, source, gitOps, rendered,
         Path.of("src/main/resources/application.yml"), fixture,
         MentorGoldenCase.load(fixture), new MentorPromptBuilder(),
-        java.util.Map.of("ollama", "https://eval-ollama.example.test"));
+        java.util.Map.of("ollama", "https://eval-ollama.example.test"),
+        artifacts.bootJar(), artifacts.sharedArtifact(), artifacts.dependencyGraph(),
+        artifacts.currentDependencyGraph(), artifacts.gradleProperties());
   }
 
   private Path rendered() throws Exception {

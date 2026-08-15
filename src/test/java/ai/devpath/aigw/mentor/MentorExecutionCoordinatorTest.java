@@ -2,6 +2,7 @@ package ai.devpath.aigw.mentor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -12,9 +13,11 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 import java.time.Duration;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -26,6 +29,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 class MentorExecutionCoordinatorTest {
 
+  private static final String CONTEXT_ENVELOPE =
+      "{\"snapshotId\":23,\"purpose\":\"mentor_prompt\",\"visibility\":\"private\","
+          + "\"fieldsIncluded\":[],\"content\":{}}";
   private final List<ThreadPoolTaskExecutor> executors = new ArrayList<>();
   private final List<ScheduledExecutorService> schedulers = new ArrayList<>();
 
@@ -90,10 +96,10 @@ class MentorExecutionCoordinatorTest {
         new MentorTimeoutPolicy(Duration.ofMillis(20), Duration.ofMillis(50), Duration.ofMillis(150)));
     RecordingEmitter emitter = new RecordingEmitter();
 
-    coordinator.start(42L, "queued", null, null, emitter);
+    coordinator.start(42L, "queued", null, approvedContext(), emitter);
 
     verify(persistence, timeout(1000)).saveFailed(42L, "queued", null, "",
-        MentorContextAssembler.EMPTY_CONTEXT_JSON, "[]", null, "AI_TIMEOUT");
+        CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
     verify(service, never()).streamAnswer(eq("queued"), any(), any());
     assertThat(emitter.terminalPayloads()).singleElement()
         .satisfies(payload -> assertThat(payload).contains("AI_TIMEOUT"));
@@ -127,10 +133,10 @@ class MentorExecutionCoordinatorTest {
         new MentorTimeoutPolicy(Duration.ofMillis(20), Duration.ofMillis(80), Duration.ofMillis(200)));
     RecordingEmitter emitter = new RecordingEmitter();
 
-    coordinator.start(42L, "running", 7L, null, emitter);
+    coordinator.start(42L, "running", 7L, approvedContext(), emitter);
     assertThat(tokenSent.await(1, TimeUnit.SECONDS)).isTrue();
     verify(persistence, timeout(1000)).saveFailed(42L, "running", 7L, "부분 토큰",
-        MentorContextAssembler.EMPTY_CONTEXT_JSON, "[]", null, "AI_TIMEOUT");
+        CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
     release.countDown();
     Thread.sleep(100);
 
@@ -139,11 +145,91 @@ class MentorExecutionCoordinatorTest {
     assertThat(emitter.terminalPayloads()).hasSize(1);
   }
 
+  @Test
+  void oneBlockingEmitterCannotDelayAnotherSessionsDeadline() throws Exception {
+    ThreadPoolTaskExecutor executor = executor(2, 2, 2);
+    ScheduledExecutorService scheduler = scheduler();
+    MentorPersistenceService persistence = mock(MentorPersistenceService.class);
+    MentorService service = mock(MentorService.class);
+    CountDownLatch firstSendEntered = new CountDownLatch(1);
+    CountDownLatch releaseFirstSend = new CountDownLatch(1);
+    doAnswer(invocation -> {
+      String question = invocation.getArgument(0);
+      MentorSessionTerminal terminal = invocation.getArgument(2);
+      if ("blocking".equals(question)) {
+        terminal.sendToken("blocked-token");
+      } else {
+        while (!Thread.currentThread().isInterrupted()) {
+          Thread.onSpinWait();
+        }
+      }
+      return null;
+    }).when(service).streamAnswer(anyString(), any(), any());
+    MentorExecutionCoordinator coordinator = coordinator(
+        service, persistence, executor, scheduler,
+        new MentorTimeoutPolicy(Duration.ofMillis(20), Duration.ofMillis(80),
+            Duration.ofMillis(250)));
+
+    coordinator.start(1L, "blocking", null, null,
+        new BlockingEmitter(firstSendEntered, releaseFirstSend));
+    assertThat(firstSendEntered.await(1, TimeUnit.SECONDS)).isTrue();
+    RecordingEmitter second = new RecordingEmitter();
+    coordinator.start(2L, "silent", null, approvedContext(), second);
+
+    try {
+      verify(persistence, timeout(500)).saveFailed(2L, "silent", null, "",
+          CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
+      await().atMost(Duration.ofMillis(500)).untilAsserted(() ->
+          assertThat(second.terminalPayloads()).singleElement()
+              .satisfies(payload -> assertThat(payload).contains("AI_TIMEOUT")));
+    } finally {
+      releaseFirstSend.countDown();
+    }
+  }
+
+  @Test
+  void silentProviderGetsBoundedKeepalivesUntilExactlyOneTerminal() throws Exception {
+    ThreadPoolTaskExecutor executor = executor(1, 1, 1);
+    ScheduledExecutorService scheduler = scheduler();
+    MentorPersistenceService persistence = mock(MentorPersistenceService.class);
+    MentorService service = mock(MentorService.class);
+    doAnswer(invocation -> {
+      while (!Thread.currentThread().isInterrupted()) {
+        Thread.onSpinWait();
+      }
+      return null;
+    }).when(service).streamAnswer(anyString(), any(), any());
+    MentorExecutionCoordinator coordinator = coordinator(
+        service, persistence, executor, scheduler,
+        new MentorTimeoutPolicy(Duration.ofMillis(50), Duration.ofMillis(140),
+            Duration.ofMillis(300), Duration.ofMillis(20)));
+    RecordingEmitter emitter = new RecordingEmitter();
+
+    coordinator.start(42L, "silent-sensitive-question", null, approvedContext(), emitter);
+
+    await().atMost(Duration.ofMillis(120)).untilAsserted(() ->
+        assertThat(emitter.keepalives()).hasSizeGreaterThanOrEqualTo(2));
+    verify(persistence, timeout(700)).saveFailed(42L, "silent-sensitive-question", null, "",
+        CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
+    await().atMost(Duration.ofMillis(500)).untilAsserted(() ->
+        assertThat(emitter.terminalPayloads()).hasSize(1));
+    int terminalIndex = emitter.data.indexOf(emitter.terminalPayloads().get(0));
+    int keepalivesAtTerminal = emitter.keepalives().size();
+    Thread.sleep(80);
+
+    assertThat(emitter.keepalives()).hasSize(keepalivesAtTerminal);
+    assertThat(emitter.data.subList(terminalIndex + 1, emitter.data.size()))
+        .noneMatch(value -> value.contains("keepalive"));
+    assertThat(emitter.keepalives()).allMatch(value -> value.equals(":keepalive\n\n"))
+        .noneMatch(value -> value.contains("silent-sensitive-question"));
+  }
+
   private MentorExecutionCoordinator coordinator(MentorService service,
       MentorPersistenceService persistence, ThreadPoolTaskExecutor executor,
       ScheduledExecutorService scheduler, MentorTimeoutPolicy policy) {
     return new MentorExecutionCoordinator(
-        service, persistence, executor, scheduler, policy, JsonMapper.builder().build());
+        service, persistence, executor, scheduler, policy, JsonMapper.builder().build(),
+        new MentorTerminalIoDispatcher(executor(4, 4, 44), executor(4, 4, 44), 48));
   }
 
   private ThreadPoolTaskExecutor executor(int core, int max, int queue) {
@@ -164,8 +250,13 @@ class MentorExecutionCoordinatorTest {
     return scheduler;
   }
 
+  private static MentorSnapshotContext approvedContext() {
+    return new MentorSnapshotContext(23L, CONTEXT_ENVELOPE,
+        "{\"fieldsIncluded\":[],\"content\":{}}");
+  }
+
   static final class RecordingEmitter extends SseEmitter {
-    final List<String> data = new ArrayList<>();
+    final List<String> data = new CopyOnWriteArrayList<>();
 
     @Override
     public void send(SseEventBuilder builder) {
@@ -177,5 +268,37 @@ class MentorExecutionCoordinatorTest {
     List<String> terminalPayloads() {
       return data.stream().filter(value -> value.contains("\"status\":" )).toList();
     }
+
+    List<String> keepalives() {
+      return data.stream().filter(value -> value.contains("keepalive")).toList();
+    }
+  }
+
+  static final class BlockingEmitter extends SseEmitter {
+    private final CountDownLatch entered;
+    private final CountDownLatch release;
+
+    BlockingEmitter(CountDownLatch entered, CountDownLatch release) {
+      this.entered = entered;
+      this.release = release;
+    }
+
+    @Override
+    public void send(SseEventBuilder builder) throws IOException {
+      boolean token = builder.build().stream()
+          .anyMatch(item -> String.valueOf(item.getData()).contains("blocked-token"));
+      if (!token) return;
+      entered.countDown();
+      boolean done = false;
+      while (!done) {
+        try {
+          done = release.await(20, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {
+          // Emulate an emitter write that does not respond to cancellation.
+        }
+      }
+    }
+
+    @Override public void complete() {}
   }
 }

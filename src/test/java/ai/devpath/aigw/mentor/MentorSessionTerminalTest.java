@@ -1,6 +1,7 @@
 package ai.devpath.aigw.mentor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import ai.devpath.shared.error.ErrorResponse;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +29,7 @@ class MentorSessionTerminalTest {
     RecordingEmitter emitter = new RecordingEmitter();
     MentorSessionTerminal terminal = terminal(emitter);
     terminal.sendToken("보존할 토큰");
-    terminal.recordProvider("OLLAMA");
+    terminal.selectProvider("OLLAMA");
 
     terminal.completeDone();
     terminal.completeFailed("AI_PROVIDER_UNAVAILABLE", "mentor response unavailable");
@@ -46,8 +48,7 @@ class MentorSessionTerminalTest {
     terminal.sendToken("부분 답변");
 
     terminal.timeout();
-    terminal.recordProvider("CLAUDE");
-    terminal.completeDone();
+    assertThat(terminal.completeDone()).isFalse();
 
     verify(persistence).saveFailed(42L, "q", 7L, "부분 답변", "{}", "[]", null,
         "AI_TIMEOUT");
@@ -58,6 +59,21 @@ class MentorSessionTerminalTest {
       assertThat(payload).contains("\"code\":\"AI_TIMEOUT\"");
       assertThat(payload).doesNotContain("부분 답변");
     });
+  }
+
+  @Test
+  void providerSelectionAfterTerminalClaimCannotOverwritePersistedProvider() {
+    RecordingEmitter emitter = new RecordingEmitter();
+    MentorSessionTerminal terminal = terminal(emitter);
+    terminal.selectProvider("PRIMARY");
+
+    terminal.timeout();
+
+    assertThatThrownBy(() -> terminal.selectProvider("FALLBACK"))
+        .isInstanceOf(MentorSessionTerminal.MentorTerminalClosedException.class);
+    verify(persistence).saveFailed(42L, "q", 7L, "", "{}", "[]", "PRIMARY",
+        "AI_TIMEOUT");
+    assertThat(emitter.terminalPayloads()).hasSize(1);
   }
 
   @Test
@@ -108,9 +124,43 @@ class MentorSessionTerminalTest {
     verify(work).cancel(true);
   }
 
+  @Test
+  void legacySuccessCompletesWithEofAndDoesNotEmitV2Terminal() {
+    RecordingEmitter emitter = new RecordingEmitter();
+    MentorSessionTerminal terminal = legacyTerminal(emitter);
+    terminal.sendToken("legacy-token");
+
+    terminal.completeDone();
+
+    assertThat(emitter.data).contains("legacy-token");
+    assertThat(emitter.terminalPayloads()).isEmpty();
+    assertThat(emitter.errorEnvelopes()).isEmpty();
+    assertThat(emitter.completeCalls).isEqualTo(1);
+  }
+
+  @Test
+  void legacyFailureEmitsExistingErrorEnvelopeWithoutV2Terminal() {
+    RecordingEmitter emitter = new RecordingEmitter();
+    MentorSessionTerminal terminal = legacyTerminal(emitter);
+
+    terminal.completeFailed("AI_PROVIDER_UNAVAILABLE", "mentor response unavailable");
+
+    assertThat(emitter.terminalPayloads()).isEmpty();
+    assertThat(emitter.errorEnvelopes()).singleElement().satisfies(envelope -> {
+      assertThat(envelope.error().code()).isEqualTo("INTERNAL_ERROR");
+      assertThat(envelope.error().message()).isEqualTo("mentor response unavailable");
+    });
+    assertThat(emitter.completeCalls).isEqualTo(1);
+  }
+
   private MentorSessionTerminal terminal(SseEmitter emitter) {
     return new MentorSessionTerminal(
-        persistence, mapper, emitter, 42L, "q", 7L, "{}");
+        persistence, mapper, emitter, 42L, "q", 7L, "{}", true);
+  }
+
+  private MentorSessionTerminal legacyTerminal(SseEmitter emitter) {
+    return new MentorSessionTerminal(
+        persistence, mapper, emitter, 42L, "q", 7L, "{}", false);
   }
 
   static class RecordingEmitter extends SseEmitter {
@@ -119,7 +169,10 @@ class MentorSessionTerminalTest {
 
     @Override
     public void send(SseEventBuilder builder) {
-      builder.build().forEach(item -> data.add(String.valueOf(item.getData())));
+      builder.build().forEach(item -> {
+        objects.add(item.getData());
+        data.add(String.valueOf(item.getData()));
+      });
     }
 
     @Override
@@ -130,6 +183,13 @@ class MentorSessionTerminalTest {
     List<String> terminalPayloads() {
       return data.stream().filter(value -> value.contains("\"status\":" )).toList();
     }
+
+    List<ErrorResponse> errorEnvelopes() {
+      return objects.stream().filter(ErrorResponse.class::isInstance)
+          .map(ErrorResponse.class::cast).toList();
+    }
+
+    final List<Object> objects = new ArrayList<>();
   }
 
   static final class FailingTerminalEmitter extends SseEmitter {
