@@ -28,6 +28,7 @@ server:
 devpath:
   auth:
     jwt-secret: ${JWT_SECRET:test-secret-please-change-min-32-bytes-long-0123456789}
+    internal-token: ${INTERNAL_API_TOKEN:}
   sandbox:
     base-url: ${SANDBOX_URI:http://localhost:8085}
     timeout: ${SANDBOX_TIMEOUT:PT5S}

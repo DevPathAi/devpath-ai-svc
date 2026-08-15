@@ -17,5 +17,7 @@ spring:
       ddl-auto: none
 
 devpath:
+  auth:
+    internal-token: test-internal-token
   review:
     provider: mock

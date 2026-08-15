@@ -11,15 +11,25 @@ import org.springframework.web.client.RestClientException;
 @Component
 public class SandboxClient {
 
+  private static final String INTERNAL_TOKEN_HEADER = "X-DevPath-Internal-Token";
+
   private final RestClient restClient;
 
   public SandboxClient(
       @Value("${devpath.sandbox.base-url:http://localhost:8085}") String baseUrl,
-      @Value("${devpath.sandbox.timeout:PT5S}") Duration timeout) {
+      @Value("${devpath.sandbox.timeout:PT5S}") Duration timeout,
+      @Value("${devpath.auth.internal-token:}") String internalToken) {
+    if (internalToken == null || internalToken.isBlank()) {
+      throw new IllegalStateException("sandbox internal token is required");
+    }
     var requestFactory = new SimpleClientHttpRequestFactory();
     requestFactory.setConnectTimeout(timeout);
     requestFactory.setReadTimeout(timeout);
-    this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
+    this.restClient = RestClient.builder()
+        .baseUrl(baseUrl)
+        .defaultHeader(INTERNAL_TOKEN_HEADER, internalToken)
+        .requestFactory(requestFactory)
+        .build();
   }
 
   public SandboxSessionView getSession(long sandboxSessionId) {
