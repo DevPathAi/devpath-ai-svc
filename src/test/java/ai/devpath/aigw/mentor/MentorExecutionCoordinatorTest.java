@@ -10,6 +10,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.time.Duration;
@@ -21,6 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -188,6 +190,64 @@ class MentorExecutionCoordinatorTest {
   }
 
   @Test
+  void blockedSelfEmitterCannotDelayDurableTimeoutCancellationOrAdmissionRelease()
+      throws Exception {
+    ThreadPoolTaskExecutor workExecutor = executor(1, 1, 1);
+    ThreadPoolTaskExecutor terminalExecutor = executor(1, 1, 1);
+    ThreadPoolTaskExecutor terminalTransportExecutor = executor(1, 1, 1);
+    ThreadPoolTaskExecutor heartbeatExecutor = executor(1, 1, 1);
+    MentorTerminalIoDispatcher dispatcher = new MentorTerminalIoDispatcher(
+        terminalExecutor, terminalTransportExecutor, heartbeatExecutor, 1);
+    ScheduledExecutorService scheduler = scheduler();
+    MentorPersistenceService persistence = mock(MentorPersistenceService.class);
+    MentorService service = mock(MentorService.class);
+    CountDownLatch tokenSendEntered = new CountDownLatch(1);
+    CountDownLatch workInterrupted = new CountDownLatch(1);
+    CountDownLatch queuedTokenDiscarded = new CountDownLatch(1);
+    CountDownLatch releaseTokenSend = new CountDownLatch(1);
+    BlockingTerminalEmitter emitter = new BlockingTerminalEmitter(
+        tokenSendEntered, workInterrupted, releaseTokenSend);
+    doAnswer(invocation -> {
+      MentorSessionTerminal terminal = invocation.getArgument(2, MentorSessionTerminal.class);
+      Thread.ofVirtual().start(() -> {
+        try {
+          tokenSendEntered.await();
+          terminal.sendToken("queued-token");
+        } catch (MentorSessionTerminal.MentorTerminalClosedException expected) {
+          queuedTokenDiscarded.countDown();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+      });
+      terminal.sendToken("blocked-token");
+      return null;
+    }).when(service).streamAnswer(anyString(), any(), any());
+    MentorExecutionCoordinator coordinator = new MentorExecutionCoordinator(
+        service, persistence, workExecutor, scheduler,
+        new MentorTimeoutPolicy(Duration.ofMillis(20), Duration.ofMillis(80),
+            Duration.ofMillis(250)), JsonMapper.builder().build(), dispatcher);
+
+    coordinator.start(1L, "blocked-self", null, approvedContext(), emitter);
+    assertThat(tokenSendEntered.await(1, TimeUnit.SECONDS)).isTrue();
+
+    verify(persistence, timeout(500)).saveFailed(1L, "blocked-self", null, "",
+        CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
+    assertThat(workInterrupted.await(500, TimeUnit.MILLISECONDS)).isTrue();
+    assertThat(queuedTokenDiscarded.await(500, TimeUnit.MILLISECONDS)).isTrue();
+    await().atMost(Duration.ofMillis(500)).untilAsserted(() ->
+        assertThat(dispatcher.availableReservations()).isEqualTo(1));
+    assertThat(emitter.terminalAttempts.get()).isZero();
+
+    releaseTokenSend.countDown();
+    await().atMost(Duration.ofMillis(500))
+        .untilAsserted(() -> assertThat(emitter.terminalAttempts.get()).isEqualTo(1));
+    assertThat(emitter.queuedTokenAttempts.get()).isZero();
+    assertThat(emitter.heartbeatAttempts.get()).isZero();
+    verify(persistence, times(1)).saveFailed(1L, "blocked-self", null, "",
+        CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
+  }
+
+  @Test
   void silentProviderGetsBoundedKeepalivesUntilExactlyOneTerminal() throws Exception {
     ThreadPoolTaskExecutor executor = executor(1, 1, 1);
     ScheduledExecutorService scheduler = scheduler();
@@ -229,7 +289,8 @@ class MentorExecutionCoordinatorTest {
       ScheduledExecutorService scheduler, MentorTimeoutPolicy policy) {
     return new MentorExecutionCoordinator(
         service, persistence, executor, scheduler, policy, JsonMapper.builder().build(),
-        new MentorTerminalIoDispatcher(executor(4, 4, 44), executor(4, 4, 44), 48));
+        new MentorTerminalIoDispatcher(
+            executor(4, 4, 44), executor(4, 4, 44), executor(4, 4, 44), 48));
   }
 
   private ThreadPoolTaskExecutor executor(int core, int max, int queue) {
@@ -296,6 +357,50 @@ class MentorExecutionCoordinatorTest {
         } catch (InterruptedException ignored) {
           // Emulate an emitter write that does not respond to cancellation.
         }
+      }
+    }
+
+    @Override public void complete() {}
+  }
+
+  static final class BlockingTerminalEmitter extends SseEmitter {
+    private final CountDownLatch tokenEntered;
+    private final CountDownLatch interrupted;
+    private final CountDownLatch release;
+    private final AtomicInteger terminalAttempts = new AtomicInteger();
+    private final AtomicInteger queuedTokenAttempts = new AtomicInteger();
+    private final AtomicInteger heartbeatAttempts = new AtomicInteger();
+
+    BlockingTerminalEmitter(CountDownLatch tokenEntered, CountDownLatch interrupted,
+        CountDownLatch release) {
+      this.tokenEntered = tokenEntered;
+      this.interrupted = interrupted;
+      this.release = release;
+    }
+
+    @Override
+    public void send(SseEventBuilder builder) {
+      List<String> values = builder.build().stream()
+          .map(item -> String.valueOf(item.getData())).toList();
+      if (values.stream().anyMatch(value -> value.contains("blocked-token"))) {
+        tokenEntered.countDown();
+        boolean done = false;
+        while (!done) {
+          try {
+            done = release.await(20, TimeUnit.MILLISECONDS);
+          } catch (InterruptedException ignored) {
+            interrupted.countDown();
+          }
+        }
+      }
+      if (values.stream().anyMatch(value -> value.contains("\"status\":"))) {
+        terminalAttempts.incrementAndGet();
+      }
+      if (values.stream().anyMatch(value -> value.contains("queued-token"))) {
+        queuedTokenAttempts.incrementAndGet();
+      }
+      if (values.stream().anyMatch(value -> value.contains("keepalive"))) {
+        heartbeatAttempts.incrementAndGet();
       }
     }
 

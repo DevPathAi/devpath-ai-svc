@@ -13,10 +13,11 @@ class MentorTerminalIoDispatcherTest {
   @Test
   void blockedHeartbeatCannotStarveAnotherSessionsTerminalFinalizer() throws Exception {
     ExecutorService terminalLane = Executors.newSingleThreadExecutor();
+    ExecutorService terminalTransportLane = Executors.newSingleThreadExecutor();
     ExecutorService heartbeatLane = Executors.newSingleThreadExecutor();
     try {
       MentorTerminalIoDispatcher dispatcher = new MentorTerminalIoDispatcher(
-          terminalLane::execute, heartbeatLane::execute, 2);
+          terminalLane::execute, terminalTransportLane::execute, heartbeatLane::execute, 2);
       MentorTerminalIoDispatcher.Reservation slow = dispatcher.reserve();
       MentorTerminalIoDispatcher.Reservation finishing = dispatcher.reserve();
       CountDownLatch heartbeatEntered = new CountDownLatch(1);
@@ -35,6 +36,7 @@ class MentorTerminalIoDispatcherTest {
       releaseHeartbeat.countDown();
     } finally {
       terminalLane.shutdownNow();
+      terminalTransportLane.shutdownNow();
       heartbeatLane.shutdownNow();
     }
   }

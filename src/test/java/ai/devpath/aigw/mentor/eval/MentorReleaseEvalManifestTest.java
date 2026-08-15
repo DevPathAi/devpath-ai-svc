@@ -25,12 +25,12 @@ class MentorReleaseEvalManifestTest {
     MentorReleaseEvalManifest.Inputs inputs = inputs(SOURCE, GITOPS, rendered());
 
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
-    Path path = temp.resolve("mentor-release-eval-manifest-v2.json");
+    Path path = temp.resolve("mentor-release-eval-manifest-v3.json");
     manifest.write(path);
     MentorReleaseEvalManifest loaded = MentorReleaseEvalManifest.read(path);
     loaded.validate(inputs);
 
-    assertThat(loaded.schemaVersion()).isEqualTo("mentor-release-eval/v2");
+    assertThat(loaded.schemaVersion()).isEqualTo("mentor-release-eval/v3");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::role)
         .containsExactly("primary", "fallback");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::provider)
@@ -43,6 +43,7 @@ class MentorReleaseEvalManifestTest {
     assertThat(loaded.sharedArtifactSha256()).hasSize(64);
     assertThat(loaded.bootJarSha256()).hasSize(64);
     assertThat(loaded.runtimeDependencyGraphSha256()).hasSize(64);
+    assertThat(loaded.bootLibraryGraphSha256()).hasSize(64);
     assertThat(loaded.hardInvariantMinimum()).isEqualTo(1.0);
     assertThat(loaded.qualityMinimum()).isEqualTo(0.90);
   }
@@ -84,11 +85,32 @@ class MentorReleaseEvalManifestTest {
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> manifest.withRuntimeDependencyGraphSha256("3".repeat(64))
         .validate(inputs)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> manifest.withBootLibraryGraphSha256("4".repeat(64))
+        .validate(inputs)).isInstanceOf(IllegalArgumentException.class);
 
     Files.writeString(inputs.currentDependencyGraph(), "different graph\n");
     assertThatThrownBy(() -> MentorReleaseEvalManifest.create(inputs))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("dependency graph");
+  }
+
+  @Test
+  void runtimeResolutionAndBootLibraryGraphsHaveIndependentMembership() throws Exception {
+    MentorReleaseEvalManifest.Inputs inputs = inputs(SOURCE, GITOPS, rendered());
+
+    MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
+
+    assertThat(Files.readString(inputs.dependencyGraph()))
+        .contains("test.synthetic:resolved-only:1|resolved-only-runtime.jar|");
+    assertThat(Files.readString(inputs.bootLibraryGraph()))
+        .doesNotContain("resolved-only-runtime.jar");
+    manifest.validate(inputs);
+
+    Files.writeString(inputs.bootLibraryGraph(), "devpath-shared-forged.jar|" + "0".repeat(64)
+        + "\n");
+    assertThatThrownBy(() -> MentorReleaseEvalManifest.create(inputs))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("boot");
   }
 
   @Test
@@ -171,11 +193,11 @@ class MentorReleaseEvalManifestTest {
     manifest.write(manifestPath);
     Instant now = Instant.parse("2026-08-16T12:00:00Z");
     MentorEvalEvidence malformed = new MentorEvalEvidence(
-        "mentor-release-eval-evidence/v2",
+        "mentor-release-eval-evidence/v3",
         MentorReleaseEvalManifest.sha256(manifestPath), manifest.releaseId(),
         manifest.sourceRevision(), manifest.gitOpsRevision(), manifest.renderedConfigSha256(),
         manifest.sharedCoordinate(), manifest.sharedArtifactSha256(), manifest.bootJarSha256(),
-        manifest.runtimeDependencyGraphSha256(),
+        manifest.runtimeDependencyGraphSha256(), manifest.bootLibraryGraphSha256(),
         manifest.promptSha256(), manifest.fixtureRevision(), manifest.fixtureSha256(),
         now.toString(), "PASS", Double.NaN, 0.95, manifest.requiredQualityRate(),
         List.of(
@@ -201,7 +223,8 @@ class MentorReleaseEvalManifestTest {
         MentorGoldenCase.load(fixture), new MentorPromptBuilder(),
         java.util.Map.of("ollama", "https://eval-ollama.example.test"),
         artifacts.bootJar(), artifacts.sharedArtifact(), artifacts.dependencyGraph(),
-        artifacts.currentDependencyGraph(), artifacts.gradleProperties());
+        artifacts.currentDependencyGraph(), artifacts.bootLibraryGraph(),
+        artifacts.gradleProperties());
   }
 
   private Path rendered() throws Exception {

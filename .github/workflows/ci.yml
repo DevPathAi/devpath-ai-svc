@@ -106,12 +106,13 @@ jobs:
           MENTOR_EVAL_SOURCE_REVISION: ${{ github.sha }}
           MENTOR_EVAL_GITOPS_REVISION: ${{ steps.gitops-revision.outputs.sha }}
           MENTOR_EVAL_RENDERED_CONFIG: ${{ github.workspace }}/build/release-eval/rendered.yaml
-          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v2.json
-          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v2.json
+          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v3.json
+          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v3.json
           MENTOR_EVAL_BOOT_JAR: ${{ github.workspace }}/build/evaluated-release-inputs/devpath-ai-svc-0.0.1-SNAPSHOT.jar
           MENTOR_EVAL_SHARED_ARTIFACT: ${{ github.workspace }}/build/evaluated-release-inputs/devpath-shared-0.0.1-et9.20260816.jar
           MENTOR_EVAL_DEPENDENCY_GRAPH: ${{ github.workspace }}/build/evaluated-release-inputs/runtime-dependency-graph.txt
           MENTOR_EVAL_CURRENT_DEPENDENCY_GRAPH: ${{ github.workspace }}/build/release-eval/current-runtime-dependency-graph.txt
+          MENTOR_EVAL_BOOT_LIBRARY_GRAPH: ${{ github.workspace }}/build/evaluated-release-inputs/boot-library-graph.txt
           MENTOR_EVAL_GRADLE_PROPERTIES: ${{ github.workspace }}/gradle.properties
           MENTOR_EVAL_OLLAMA_BASE_URL: ${{ vars.MENTOR_EVAL_OLLAMA_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -129,8 +130,8 @@ jobs:
         with:
           name: mentor-release-eval-${{ github.sha }}
           path: |
-            build/release-eval/mentor-release-eval-manifest-v2.json
-            build/release-eval/mentor-release-eval-evidence-v2.json
+            build/release-eval/mentor-release-eval-manifest-v3.json
+            build/release-eval/mentor-release-eval-evidence-v3.json
           if-no-files-found: error
           retention-days: 90
 

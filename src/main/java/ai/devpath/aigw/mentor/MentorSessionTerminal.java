@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.json.JsonMapper;
@@ -18,7 +19,8 @@ final class MentorSessionTerminal {
   private enum Phase { OPEN, TERMINATING, DONE, FAILED }
 
   private final Object stateLock = new Object();
-  private final ReentrantLock writeLock = new ReentrantLock();
+  private final ReentrantLock transportLock = new ReentrantLock();
+  private final Condition transportIdle = transportLock.newCondition();
   private final MentorPersistenceService persistence;
   private final JsonMapper jsonMapper;
   private final SseEmitter emitter;
@@ -38,6 +40,7 @@ final class MentorSessionTerminal {
   private ScheduledFuture<?> heartbeat;
   private Thread workerThread;
   private boolean cancellationRequested;
+  private boolean transportInProgress;
 
   MentorSessionTerminal(MentorPersistenceService persistence, JsonMapper jsonMapper,
       SseEmitter emitter, long userId, String question, Long contentId, String snapshotJson) {
@@ -115,32 +118,30 @@ final class MentorSessionTerminal {
   }
 
   void sendReferences(String json) {
-    lockWriterInterruptibly();
+    beginOpenTransport();
     try {
-      synchronized (stateLock) {
-        ensureOpen();
-      }
       send(SseEmitter.event().name("references").data(json));
       synchronized (stateLock) {
-        referenceLinksJson = json;
+        if (phase == Phase.OPEN) {
+          referenceLinksJson = json;
+        }
       }
     } finally {
-      writeLock.unlock();
+      endTransport();
     }
   }
 
   void sendToken(String token) {
-    lockWriterInterruptibly();
+    beginOpenTransport();
     try {
-      synchronized (stateLock) {
-        ensureOpen();
-      }
       send(SseEmitter.event().name("token").data(token));
       synchronized (stateLock) {
-        answer.append(token);
+        if (phase == Phase.OPEN) {
+          answer.append(token);
+        }
       }
     } finally {
-      writeLock.unlock();
+      endTransport();
     }
   }
 
@@ -189,11 +190,13 @@ final class MentorSessionTerminal {
     Future<?> futureToCancel = null;
     ScheduledFuture<?> deadlineToCancel;
     ScheduledFuture<?> heartbeatToCancel;
+    Snapshot snapshot;
     synchronized (stateLock) {
       if (phase != Phase.OPEN) {
         return false;
       }
       phase = Phase.TERMINATING;
+      snapshot = new Snapshot(answer.toString(), referenceLinksJson, provider);
       cancellationRequested = cancelWork;
       deadlineToCancel = deadline;
       heartbeatToCancel = heartbeat;
@@ -201,6 +204,7 @@ final class MentorSessionTerminal {
         futureToCancel = work;
       }
     }
+    signalTransportWaiters();
 
     if (deadlineToCancel != null) {
       deadlineToCancel.cancel(false);
@@ -213,7 +217,8 @@ final class MentorSessionTerminal {
     }
 
     try {
-      io.submitTerminal(() -> finalizeTerminal(requestedDone, requestedCode, safeMessage));
+      io.submitTerminal(
+          () -> finalizeTerminal(requestedDone, requestedCode, safeMessage, snapshot));
     } catch (RejectedExecutionException unavailable) {
       synchronized (stateLock) {
         phase = Phase.FAILED;
@@ -222,46 +227,47 @@ final class MentorSessionTerminal {
     return true;
   }
 
-  private void finalizeTerminal(boolean requestedDone, String requestedCode, String safeMessage) {
-    writeLock.lock();
-    try {
-      Snapshot snapshot;
-      synchronized (stateLock) {
-        snapshot = new Snapshot(answer.toString(), referenceLinksJson, provider);
-      }
-      boolean persisted = persist(requestedDone, requestedCode, snapshot);
-      boolean effectiveDone = requestedDone && persisted;
-      String effectiveCode = persisted ? requestedCode : "PERSISTENCE_FAILED";
-      String effectiveMessage = persisted ? safeMessage : "mentor result could not be stored";
-      synchronized (stateLock) {
-        phase = effectiveDone ? Phase.DONE : Phase.FAILED;
-      }
-      sendTerminalBestEffort(effectiveDone, effectiveCode, effectiveMessage);
-      completeBestEffort();
-    } finally {
-      writeLock.unlock();
+  private void finalizeTerminal(boolean requestedDone, String requestedCode, String safeMessage,
+      Snapshot snapshot) {
+    boolean persisted = persist(requestedDone, requestedCode, snapshot);
+    boolean effectiveDone = requestedDone && persisted;
+    String effectiveCode = persisted ? requestedCode : "PERSISTENCE_FAILED";
+    String effectiveMessage = persisted ? safeMessage : "mentor result could not be stored";
+    synchronized (stateLock) {
+      phase = effectiveDone ? Phase.DONE : Phase.FAILED;
     }
+    io.submitTerminalTransport(
+        () -> writeTerminal(effectiveDone, effectiveCode, effectiveMessage));
   }
 
   private void writeHeartbeat() {
+    if (!beginHeartbeatTransport()) {
+      return;
+    }
     boolean failed = false;
-    writeLock.lock();
     try {
-      synchronized (stateLock) {
-        if (phase != Phase.OPEN) {
-          return;
-        }
-      }
       try {
         emitter.send(SseEmitter.event().comment("keepalive"));
       } catch (IOException | RuntimeException transportFailure) {
         failed = true;
       }
     } finally {
-      writeLock.unlock();
+      endTransport();
     }
     if (failed) {
       clientAborted();
+    }
+  }
+
+  private void writeTerminal(boolean done, String code, String safeMessage) {
+    if (!beginTerminalTransport()) {
+      return;
+    }
+    try {
+      sendTerminalBestEffort(done, code, safeMessage);
+      completeBestEffort();
+    } finally {
+      endTransport();
     }
   }
 
@@ -325,12 +331,110 @@ final class MentorSessionTerminal {
     }
   }
 
-  private void lockWriterInterruptibly() {
+  private void beginOpenTransport() {
     try {
-      writeLock.lockInterruptibly();
+      transportLock.lockInterruptibly();
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
       throw new MentorTerminalClosedException();
+    }
+    try {
+      while (transportInProgress) {
+        ensureOpenState();
+        try {
+          transportIdle.await();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new MentorTerminalClosedException();
+        }
+      }
+      ensureOpenState();
+      transportInProgress = true;
+    } finally {
+      transportLock.unlock();
+    }
+  }
+
+  private boolean beginHeartbeatTransport() {
+    try {
+      transportLock.lockInterruptibly();
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
+    try {
+      while (transportInProgress) {
+        if (!isOpen()) {
+          return false;
+        }
+        try {
+          transportIdle.await();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          return false;
+        }
+      }
+      if (!isOpen()) {
+        return false;
+      }
+      transportInProgress = true;
+      return true;
+    } finally {
+      transportLock.unlock();
+    }
+  }
+
+  private boolean beginTerminalTransport() {
+    try {
+      transportLock.lockInterruptibly();
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      return false;
+    }
+    try {
+      while (transportInProgress) {
+        try {
+          transportIdle.await();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          return false;
+        }
+      }
+      transportInProgress = true;
+      return true;
+    } finally {
+      transportLock.unlock();
+    }
+  }
+
+  private void endTransport() {
+    transportLock.lock();
+    try {
+      transportInProgress = false;
+      transportIdle.signalAll();
+    } finally {
+      transportLock.unlock();
+    }
+  }
+
+  private void signalTransportWaiters() {
+    transportLock.lock();
+    try {
+      transportIdle.signalAll();
+    } finally {
+      transportLock.unlock();
+    }
+  }
+
+  private void ensureOpenState() {
+    synchronized (stateLock) {
+      ensureOpen();
+    }
+  }
+
+  private boolean isOpen() {
+    synchronized (stateLock) {
+      return phase == Phase.OPEN;
     }
   }
 

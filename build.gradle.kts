@@ -113,7 +113,22 @@ fun runtimeDependencyLines(): List<String> = runtimeClasspath.get()
 		"${id.group}:${artifact.name}:${id.version}|${artifact.file.name}|${sha256(artifact.file)}"
 	}.sorted()
 
-tasks.register("writeMentorCurrentRuntimeDependencyGraph") {
+fun bootLibraryLines(file: File): List<String> = JarFile(file).use { archive ->
+	archive.entries().asSequence()
+		.filter { !it.isDirectory && it.name.startsWith("BOOT-INF/lib/") }
+		.map { entry ->
+			val hash = archive.getInputStream(entry).use { stream ->
+				HexFormat.of().formatHex(
+					MessageDigest.getInstance("SHA-256").digest(stream.readAllBytes()))
+			}
+			"${entry.name.removePrefix("BOOT-INF/lib/")}|$hash"
+		}
+		.sorted()
+		.toList()
+}
+
+val writeMentorCurrentRuntimeDependencyGraph =
+	tasks.register("writeMentorCurrentRuntimeDependencyGraph") {
 	group = "verification"
 	description = "Write the exact currently resolved runtime dependency graph for release comparison"
 	inputs.files(runtimeClasspath)
@@ -126,9 +141,9 @@ tasks.register("writeMentorCurrentRuntimeDependencyGraph") {
 	}
 }
 
-tasks.register("prepareMentorReleaseArtifacts") {
+val prepareMentorReleaseArtifacts = tasks.register("prepareMentorReleaseArtifacts") {
 	group = "build"
-	description = "Bundle the exact bootJar, Shared artifact, and runtime dependency graph"
+	description = "Bundle the exact bootJar, Shared artifact, runtime graph, and boot library graph"
 	dependsOn(bootJar)
 	inputs.files(runtimeClasspath)
 	inputs.file(bootJar.flatMap { it.archiveFile })
@@ -155,6 +170,8 @@ tasks.register("prepareMentorReleaseArtifacts") {
 		shared.file.copyTo(releaseShared, overwrite = true)
 		directory.resolve("runtime-dependency-graph.txt")
 			.writeText(runtimeDependencyLines().joinToString("\n", postfix = "\n"))
+		directory.resolve("boot-library-graph.txt")
+			.writeText(bootLibraryLines(releaseJar).joinToString("\n", postfix = "\n"))
 
 		val nestedName = "BOOT-INF/lib/${releaseShared.name}"
 		JarFile(releaseJar).use { archive ->
@@ -170,4 +187,30 @@ tasks.register("prepareMentorReleaseArtifacts") {
 			}
 		}
 	}
+}
+
+tasks.named<Test>("test") {
+	exclude("**/MentorReleaseArtifactPipelineTest.class")
+}
+
+val mentorReleaseArtifactFunctionalTest =
+	tasks.register<Test>("mentorReleaseArtifactFunctionalTest") {
+		group = "verification"
+		description = "Exercise bootJar to prepared graphs to manifest with real artifacts"
+		dependsOn(prepareMentorReleaseArtifacts, writeMentorCurrentRuntimeDependencyGraph)
+		testClassesDirs = sourceSets["test"].output.classesDirs
+		classpath = sourceSets["test"].runtimeClasspath
+		include("**/MentorReleaseArtifactPipelineTest.class")
+		shouldRunAfter(tasks.named("test"))
+		doFirst {
+			systemProperty("mentorReleaseInputsDir",
+				layout.buildDirectory.dir("release-inputs").get().asFile.absolutePath)
+			systemProperty("mentorBootJar", bootJar.get().archiveFile.get().asFile.absolutePath)
+			systemProperty("mentorCurrentRuntimeGraph", layout.buildDirectory
+				.file("release-eval/current-runtime-dependency-graph.txt").get().asFile.absolutePath)
+		}
+	}
+
+tasks.named("check") {
+	dependsOn(mentorReleaseArtifactFunctionalTest)
 }

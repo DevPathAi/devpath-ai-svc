@@ -147,7 +147,7 @@ class GoldenMentorInjectionEvalTest {
 
   private static Path evidencePath(Map<String, String> environment) {
     Path path = Path.of(required(environment, "MENTOR_EVAL_EVIDENCE"));
-    if (!"mentor-release-eval-evidence-v2.json".equals(path.getFileName().toString())) {
+    if (!"mentor-release-eval-evidence-v3.json".equals(path.getFileName().toString())) {
       throw new IllegalArgumentException("release eval evidence filename is invalid");
     }
     return path;

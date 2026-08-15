@@ -31,6 +31,7 @@ record MentorReleaseEvalManifest(
     String sharedArtifactSha256,
     String bootJarSha256,
     String runtimeDependencyGraphSha256,
+    String bootLibraryGraphSha256,
     List<Model> models,
     String promptSha256,
     String fixtureRevision,
@@ -41,7 +42,7 @@ record MentorReleaseEvalManifest(
     double maxBaselineDrop,
     long evidenceMaxAgeSeconds) {
 
-  static final String SCHEMA = "mentor-release-eval/v2";
+  static final String SCHEMA = "mentor-release-eval/v3";
   static final String FIXTURE_REVISION = "mentor-golden-v2";
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
   private static final Pattern REVISION = Pattern.compile("[0-9a-f]{40,64}");
@@ -70,6 +71,7 @@ record MentorReleaseEvalManifest(
         artifacts.sharedArtifactSha256(),
         artifacts.bootJarSha256(),
         artifacts.runtimeDependencyGraphSha256(),
+        artifacts.bootLibraryGraphSha256(),
         models,
         promptSuiteSha256(inputs.prompts(), inputs.cases()),
         FIXTURE_REVISION,
@@ -110,47 +112,55 @@ record MentorReleaseEvalManifest(
 
   MentorReleaseEvalManifest withFixtureSha256(String value) {
     return copy(models, promptSha256, value, sharedArtifactSha256, bootJarSha256,
-        runtimeDependencyGraphSha256);
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256);
   }
 
   MentorReleaseEvalManifest withPromptSha256(String value) {
     return copy(models, value, fixtureSha256, sharedArtifactSha256, bootJarSha256,
-        runtimeDependencyGraphSha256);
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256);
   }
 
   MentorReleaseEvalManifest withModels(List<Model> value) {
     return copy(value, promptSha256, fixtureSha256, sharedArtifactSha256, bootJarSha256,
-        runtimeDependencyGraphSha256);
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256);
   }
 
   MentorReleaseEvalManifest withSharedCoordinate(String value) {
     return new MentorReleaseEvalManifest(schemaVersion, releaseId, sourceRevision, gitOpsRevision,
         renderedConfigSha256, value, sharedArtifactSha256, bootJarSha256,
-        runtimeDependencyGraphSha256, models, promptSha256, fixtureRevision, fixtureSha256,
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256, models, promptSha256,
+        fixtureRevision, fixtureSha256,
         baselineScore, hardInvariantMinimum, qualityMinimum, maxBaselineDrop,
         evidenceMaxAgeSeconds);
   }
 
   MentorReleaseEvalManifest withSharedArtifactSha256(String value) {
     return copy(models, promptSha256, fixtureSha256, value, bootJarSha256,
-        runtimeDependencyGraphSha256);
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256);
   }
 
   MentorReleaseEvalManifest withBootJarSha256(String value) {
     return copy(models, promptSha256, fixtureSha256, sharedArtifactSha256, value,
-        runtimeDependencyGraphSha256);
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256);
   }
 
   MentorReleaseEvalManifest withRuntimeDependencyGraphSha256(String value) {
-    return copy(models, promptSha256, fixtureSha256, sharedArtifactSha256, bootJarSha256, value);
+    return copy(models, promptSha256, fixtureSha256, sharedArtifactSha256, bootJarSha256,
+        value, bootLibraryGraphSha256);
+  }
+
+  MentorReleaseEvalManifest withBootLibraryGraphSha256(String value) {
+    return copy(models, promptSha256, fixtureSha256, sharedArtifactSha256, bootJarSha256,
+        runtimeDependencyGraphSha256, value);
   }
 
   private MentorReleaseEvalManifest copy(List<Model> modelValue, String promptValue,
       String fixtureValue, String sharedArtifactValue, String bootJarValue,
-      String dependencyGraphValue) {
+      String dependencyGraphValue, String bootLibraryGraphValue) {
     return new MentorReleaseEvalManifest(schemaVersion, releaseId, sourceRevision, gitOpsRevision,
         renderedConfigSha256, sharedCoordinate, sharedArtifactValue, bootJarValue,
-        dependencyGraphValue, List.copyOf(modelValue), promptValue, fixtureRevision, fixtureValue,
+        dependencyGraphValue, bootLibraryGraphValue, List.copyOf(modelValue), promptValue,
+        fixtureRevision, fixtureValue,
         baselineScore, hardInvariantMinimum, qualityMinimum, maxBaselineDrop,
         evidenceMaxAgeSeconds);
   }
@@ -219,6 +229,7 @@ record MentorReleaseEvalManifest(
     String sharedHash = sha256(inputs.sharedArtifact());
     String graphHash = sha256(inputs.dependencyGraph());
     String currentGraphHash = sha256(inputs.currentDependencyGraph());
+    String bootGraphHash = sha256(inputs.bootLibraryGraph());
     if (!graphHash.equals(currentGraphHash)) {
       throw new IllegalArgumentException(
           "evaluated runtime dependency graph differs from the release build");
@@ -240,13 +251,33 @@ record MentorReleaseEvalManifest(
           "release dependency graph does not contain the exact Shared artifact");
     }
 
-    Map<String, String> dependencyHashes = new LinkedHashMap<>();
+    if (!graphLines.equals(graphLines.stream().sorted().toList())) {
+      throw new IllegalArgumentException("release runtime dependency graph is not sorted");
+    }
     for (String line : graphLines) {
       String[] fields = line.split("\\|", -1);
       if (fields.length != 3 || !fields[0].matches("[^:|]+:[^:|]+:[^|]+")
-          || !fields[2].matches("[0-9a-f]{64}")
-          || dependencyHashes.putIfAbsent(fields[1], fields[2]) != null) {
-        throw new IllegalArgumentException("release dependency graph is malformed or ambiguous");
+          || fields[1].isBlank() || !fields[2].matches("[0-9a-f]{64}")) {
+        throw new IllegalArgumentException("release runtime dependency graph is malformed");
+      }
+    }
+
+    List<String> bootGraphLines;
+    try {
+      bootGraphLines = Files.readAllLines(inputs.bootLibraryGraph(), StandardCharsets.UTF_8);
+    } catch (Exception failure) {
+      throw new IllegalArgumentException("release boot library graph is missing", failure);
+    }
+    if (!bootGraphLines.equals(bootGraphLines.stream().sorted().toList())) {
+      throw new IllegalArgumentException("release boot library graph is not sorted");
+    }
+    Map<String, String> bootLibraryHashes = new LinkedHashMap<>();
+    for (String line : bootGraphLines) {
+      String[] fields = line.split("\\|", -1);
+      if (fields.length != 2 || fields[0].isBlank()
+          || !fields[1].matches("[0-9a-f]{64}")
+          || bootLibraryHashes.putIfAbsent(fields[0], fields[1]) != null) {
+        throw new IllegalArgumentException("release boot library graph is malformed or ambiguous");
       }
     }
 
@@ -259,16 +290,16 @@ record MentorReleaseEvalManifest(
           .map(entry -> entry.getName().substring("BOOT-INF/lib/".length()))
           .collect(java.util.stream.Collectors.toSet());
       if (nestedFiles.size() != dependencyEntries.size()
-          || !nestedFiles.equals(dependencyHashes.keySet())) {
+          || !nestedFiles.equals(bootLibraryHashes.keySet())) {
         throw new IllegalArgumentException(
-            "release bootJar libraries differ from the evaluated dependency graph");
+            "release bootJar libraries differ from the boot library graph");
       }
       for (java.util.zip.ZipEntry entry : dependencyEntries) {
         String filename = entry.getName().substring("BOOT-INF/lib/".length());
         byte[] nested = bootJar.getInputStream(entry).readAllBytes();
-        if (!dependencyHashes.get(filename).equals(sha256(nested))) {
+        if (!bootLibraryHashes.get(filename).equals(sha256(nested))) {
           throw new IllegalArgumentException(
-              "release bootJar library hash differs from the dependency graph");
+              "release bootJar library hash differs from the boot library graph");
         }
       }
       List<? extends java.util.zip.ZipEntry> sharedEntries = dependencyEntries.stream()
@@ -289,7 +320,7 @@ record MentorReleaseEvalManifest(
       throw new IllegalArgumentException("release bootJar is missing or invalid", failure);
     }
     return new ReleaseArtifacts(
-        coordinate, sharedHash, sha256(inputs.bootJar()), graphHash);
+        coordinate, sharedHash, sha256(inputs.bootJar()), graphHash, bootGraphHash);
   }
 
   private static List<Model> runtimeModels(Path renderedPath, Path applicationPath,
@@ -433,7 +464,8 @@ record MentorReleaseEvalManifest(
 
   private record ReleaseArtifacts(String sharedCoordinate, String sharedArtifactSha256,
                                   String bootJarSha256,
-                                  String runtimeDependencyGraphSha256) {}
+                                  String runtimeDependencyGraphSha256,
+                                  String bootLibraryGraphSha256) {}
 
   record Inputs(String releaseId, String sourceRevision, String checkedOutSourceRevision,
                 String gitOpsRevision,
@@ -441,7 +473,7 @@ record MentorReleaseEvalManifest(
                 List<MentorGoldenCase> cases, MentorPromptBuilder prompts,
                 Map<String, String> evaluationEndpoints,
                 Path bootJar, Path sharedArtifact, Path dependencyGraph,
-                Path currentDependencyGraph, Path gradleProperties) {
+                Path currentDependencyGraph, Path bootLibraryGraph, Path gradleProperties) {
 
     static Inputs fromEnvironment(Map<String, String> environment) {
       String source = requiredEnvironment(environment, "MENTOR_EVAL_SOURCE_REVISION");
@@ -463,6 +495,7 @@ record MentorReleaseEvalManifest(
           Path.of(requiredEnvironment(environment, "MENTOR_EVAL_SHARED_ARTIFACT")),
           Path.of(requiredEnvironment(environment, "MENTOR_EVAL_DEPENDENCY_GRAPH")),
           Path.of(requiredEnvironment(environment, "MENTOR_EVAL_CURRENT_DEPENDENCY_GRAPH")),
+          Path.of(requiredEnvironment(environment, "MENTOR_EVAL_BOOT_LIBRARY_GRAPH")),
           Path.of(environment.getOrDefault(
               "MENTOR_EVAL_GRADLE_PROPERTIES", "gradle.properties")));
     }
@@ -482,7 +515,8 @@ record MentorReleaseEvalManifest(
       if (cases == null || cases.isEmpty() || prompts == null
           || evaluationEndpoints == null || evaluationEndpoints.isEmpty()
           || bootJar == null || sharedArtifact == null || dependencyGraph == null
-          || currentDependencyGraph == null || gradleProperties == null) {
+          || currentDependencyGraph == null || bootLibraryGraph == null
+          || gradleProperties == null) {
         throw new IllegalArgumentException("release fixture and prompt are required");
       }
     }
@@ -490,13 +524,15 @@ record MentorReleaseEvalManifest(
     Inputs withCheckedOutSourceRevision(String value) {
       return new Inputs(releaseId, sourceRevision, value, gitOpsRevision, renderedConfig,
           applicationConfig, fixture, cases, prompts, evaluationEndpoints,
-          bootJar, sharedArtifact, dependencyGraph, currentDependencyGraph, gradleProperties);
+          bootJar, sharedArtifact, dependencyGraph, currentDependencyGraph, bootLibraryGraph,
+          gradleProperties);
     }
 
     Inputs withEvaluationEndpoints(Map<String, String> value) {
       return new Inputs(releaseId, sourceRevision, checkedOutSourceRevision, gitOpsRevision,
           renderedConfig, applicationConfig, fixture, cases, prompts, Map.copyOf(value),
-          bootJar, sharedArtifact, dependencyGraph, currentDependencyGraph, gradleProperties);
+          bootJar, sharedArtifact, dependencyGraph, currentDependencyGraph, bootLibraryGraph,
+          gradleProperties);
     }
 
     private static Map<String, String> evaluationEndpoints(Map<String, String> environment) {

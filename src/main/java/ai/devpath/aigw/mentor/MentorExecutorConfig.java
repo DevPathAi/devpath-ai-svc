@@ -12,6 +12,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class MentorExecutorConfig {
 
   private static final int TERMINAL_IO_THREADS = 16;
+  private static final int TERMINAL_TRANSPORT_THREADS = 16;
   private static final int HEARTBEAT_IO_THREADS = 8;
 
   @Bean(name = "mentorExecutor")
@@ -21,6 +22,17 @@ public class MentorExecutorConfig {
     executor.setMaxPoolSize(16);
     executor.setQueueCapacity(32);
     executor.setThreadNamePrefix("mentor-sse-");
+    executor.initialize();
+    return executor;
+  }
+
+  @Bean(name = "mentorTerminalTransportExecutor")
+  public AsyncTaskExecutor mentorTerminalTransportExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(TERMINAL_TRANSPORT_THREADS);
+    executor.setMaxPoolSize(TERMINAL_TRANSPORT_THREADS);
+    executor.setQueueCapacity(MentorTerminalIoDispatcher.MAX_SESSIONS);
+    executor.setThreadNamePrefix("mentor-terminal-transport-");
     executor.initialize();
     return executor;
   }

@@ -33,6 +33,7 @@ class MentorReleaseWorkflowContractTest {
     String buildText = build.toString();
     String imageText = image.toString();
     String deployText = deploy.toString();
+    String gradleBuild = Files.readString(Path.of("build.gradle.kts"));
     assertThat(buildText).contains("prepareMentorReleaseArtifacts");
     assertThat(buildText).contains("mentor-release-inputs-${{ github.sha }}");
     assertThat(buildText).contains("actions/upload-artifact");
@@ -52,7 +53,11 @@ class MentorReleaseWorkflowContractTest {
     assertThat(gateText).contains("MENTOR_EVAL_SHARED_ARTIFACT");
     assertThat(gateText).contains("MENTOR_EVAL_DEPENDENCY_GRAPH");
     assertThat(gateText).contains("MENTOR_EVAL_CURRENT_DEPENDENCY_GRAPH");
-    assertThat(gateText).contains("mentor-release-eval-manifest-v2.json");
+    assertThat(gateText).contains("MENTOR_EVAL_BOOT_LIBRARY_GRAPH");
+    assertThat(gateText).contains("mentor-release-eval-manifest-v3.json");
+    assertThat(gradleBuild).contains("boot-library-graph.txt")
+        .contains("mentorReleaseArtifactFunctionalTest")
+        .contains("dependsOn(mentorReleaseArtifactFunctionalTest)");
     assertThat(imageText).contains("actions/download-artifact");
     assertThat(imageText).contains("mentor-release-inputs-${{ github.sha }}");
     assertThat(imageText).doesNotContain("./gradlew bootJar", "--refresh-dependencies");
