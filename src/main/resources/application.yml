@@ -33,6 +33,8 @@ devpath:
     timeout: ${SANDBOX_TIMEOUT:PT5S}
   review:
     provider: ${REVIEW_PROVIDER:mock}
+    # Must exceed the longest configured provider timeout. Expiry recovers a crashed worker.
+    processing-lease: ${REVIEW_PROCESSING_LEASE:PT5M}
     ollama-model: ${REVIEW_OLLAMA_MODEL:qwen2.5-coder:7b}
     claude-model: ${REVIEW_CLAUDE_MODEL:claude-sonnet-4-6}
   ollama:

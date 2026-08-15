@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.ExponentialBackOff;
+import org.springframework.util.backoff.FixedBackOff;
 import tools.jackson.databind.json.JsonMapper;
 
 /** 리뷰 컨슈머 에러 핸들러: 일시 오류 지수백오프 재시도(3회), 소진 시 FAILED(LLM_EXHAUSTED). */
@@ -29,7 +30,12 @@ public class ReviewKafkaConfig {
     // Spring 7: ExponentialBackOffWithMaxRetries는 ExponentialBackOff로 통합(setMaxAttempts).
     ExponentialBackOff backOff = new ExponentialBackOff(1000L, 2.0);
     backOff.setMaxAttempts(3L); // 1s·2s·4s 후 소진
-    return new DefaultErrorHandler(this::recover, backOff);
+    DefaultErrorHandler handler = new DefaultErrorHandler(this::recover, backOff);
+    handler.setBackOffFunction((record, exception) ->
+        hasCause(exception, ReviewInProgressException.class)
+            ? new FixedBackOff(1000L, Long.MAX_VALUE)
+            : backOff);
+    return handler;
   }
 
   /** 재시도 소진 시: payload에서 sandboxSessionId 추출 → FAILED(LLM_EXHAUSTED). */
@@ -41,7 +47,17 @@ public class ReviewKafkaConfig {
       persistence.markExhausted(event.sandboxSessionId());
       log.warn("리뷰 재시도 소진 → FAILED(LLM_EXHAUSTED) session={}", event.sandboxSessionId(), ex);
     } catch (Exception e) {
-      log.error("recoverer payload 처리 실패: {}", value, e);
+      log.error("review recoverer could not read event; payload omitted, error={}",
+          e.getClass().getSimpleName());
     }
+  }
+
+  private static boolean hasCause(Throwable error, Class<? extends Throwable> expected) {
+    Throwable current = error;
+    while (current != null) {
+      if (expected.isInstance(current)) return true;
+      current = current.getCause();
+    }
+    return false;
   }
 }

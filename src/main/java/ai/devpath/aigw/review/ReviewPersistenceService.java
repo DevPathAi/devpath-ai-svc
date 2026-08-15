@@ -1,82 +1,182 @@
 package ai.devpath.aigw.review;
 
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.dao.DataIntegrityViolationException;
+import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
-/** 리뷰 영속을 짧은 @Transactional로 분리(LLM 호출은 ReviewService에서 tx 밖). */
+/** Short database transactions around a provider call that always runs outside a transaction. */
 @Service
 public class ReviewPersistenceService {
 
   private final AiCodeReviewRepository reviews;
   private final JsonMapper jsonMapper;
+  private final JdbcTemplate jdbc;
 
-  public ReviewPersistenceService(AiCodeReviewRepository reviews, JsonMapper jsonMapper) {
+  public ReviewPersistenceService(
+      AiCodeReviewRepository reviews, JsonMapper jsonMapper, JdbcTemplate jdbc) {
     this.reviews = reviews;
     this.jsonMapper = jsonMapper;
+    this.jdbc = jdbc;
   }
 
-  /** 기존 행이 있으면 그대로 반환, 없으면 PENDING 신규 생성. never null. UNIQUE 경합은 재조회로 흡수. */
+  /**
+   * Compatibility entry point for direct callers. INSERT ON CONFLICT avoids poisoning the
+   * transaction on a concurrent unique-key race before the requery.
+   */
   @Transactional
   public AiCodeReview findOrCreatePending(long sandboxSessionId, long userId, Long contentId) {
-    Optional<AiCodeReview> existing = reviews.findBySandboxSessionId(sandboxSessionId);
-    if (existing.isPresent()) {
-      return existing.get();
-    }
-    AiCodeReview r = new AiCodeReview();
-    r.setSandboxSessionId(sandboxSessionId);
-    r.setUserId(userId);
-    r.setContentId(contentId);
-    r.setStatus("PENDING");
-    try {
-      return reviews.saveAndFlush(r);
-    } catch (DataIntegrityViolationException dup) {
-      return reviews.findBySandboxSessionId(sandboxSessionId).orElseThrow();
-    }
+    jdbc.update("INSERT INTO ai_code_reviews(sandbox_session_id,user_id,content_id,status) "
+            + "VALUES (?,?,?,'PENDING') ON CONFLICT(sandbox_session_id) DO NOTHING",
+        sandboxSessionId, userId, contentId);
+    return reviews.findBySandboxSessionId(sandboxSessionId).orElseThrow();
   }
 
-  /** 재시도 소진 시 PENDING 행을 FAILED(LLM_EXHAUSTED)로 종료. 이미 터미널이면 무변경(멱등). */
+  /**
+   * Records the at-least-once delivery and atomically acquires the session review when it is
+   * pending or its previous PROCESSING lease has expired. No event payload is persisted.
+   */
+  @Transactional
+  public Optional<ReviewClaim> claim(
+      UUID eventId, long sandboxSessionId, long userId, Long contentId, Duration leaseDuration) {
+    if (eventId == null) throw new IllegalArgumentException("eventId is required");
+    if (leaseDuration.isNegative()) throw new IllegalArgumentException("leaseDuration must be >= 0");
+
+    List<Long> correlatedSessions = jdbc.query(
+        "INSERT INTO ai_review_event_inbox(event_id,sandbox_session_id) VALUES (?,?) "
+            + "ON CONFLICT(event_id) DO UPDATE SET "
+            + "last_received_at=CURRENT_TIMESTAMP, "
+            + "delivery_count=ai_review_event_inbox.delivery_count+1 "
+            + "WHERE ai_review_event_inbox.sandbox_session_id=EXCLUDED.sandbox_session_id "
+            + "RETURNING sandbox_session_id",
+        (rs, rowNum) -> rs.getLong(1), eventId, sandboxSessionId);
+    if (correlatedSessions.isEmpty()) {
+      return Optional.empty(); // an eventId can never be rebound to another sandbox session
+    }
+
+    jdbc.update("INSERT INTO ai_code_reviews("
+            + "sandbox_session_id,user_id,content_id,status,source_event_id) "
+            + "VALUES (?,?,?,'PENDING',?) ON CONFLICT(sandbox_session_id) DO NOTHING",
+        sandboxSessionId, userId, contentId, eventId);
+    jdbc.update("UPDATE ai_code_reviews SET "
+            + "content_id=COALESCE(content_id,?), source_event_id=COALESCE(source_event_id,?) "
+            + "WHERE sandbox_session_id=? AND user_id=?",
+        contentId, eventId, sandboxSessionId, userId);
+
+    UUID processingToken = UUID.randomUUID();
+    Instant leaseExpiresAt = Instant.now().plus(leaseDuration);
+    List<Long> claimed = jdbc.query(
+        "UPDATE ai_code_reviews SET status='PROCESSING', processing_token=?, "
+            + "lease_expires_at=?, error_code=NULL "
+            + "WHERE sandbox_session_id=? AND user_id=? AND (status='PENDING' OR "
+            + "(status='PROCESSING' AND lease_expires_at<=CURRENT_TIMESTAMP)) RETURNING id",
+        (rs, rowNum) -> rs.getLong(1),
+        processingToken, Timestamp.from(leaseExpiresAt), sandboxSessionId, userId);
+    if (claimed.isEmpty()) {
+      markInboxProcessedWhenReviewIsTerminal(eventId);
+      return Optional.empty();
+    }
+    return Optional.of(new ReviewClaim(
+        claimed.getFirst(), sandboxSessionId, eventId, processingToken));
+  }
+
+  @Transactional(readOnly = true)
+  public boolean isProcessing(long sandboxSessionId) {
+    List<Boolean> states = jdbc.query(
+        "SELECT status='PROCESSING' FROM ai_code_reviews WHERE sandbox_session_id=?",
+        (rs, rowNum) -> rs.getBoolean(1), sandboxSessionId);
+    return !states.isEmpty() && states.getFirst();
+  }
+
+  /** Release only the current fenced worker so Kafka may retry a transient provider failure. */
+  @Transactional
+  public boolean releaseForRetry(ReviewClaim claim) {
+    return jdbc.update("UPDATE ai_code_reviews SET status='PENDING', processing_token=NULL, "
+            + "lease_expires_at=NULL WHERE id=? AND status='PROCESSING' AND processing_token=?",
+        claim.reviewId(), claim.processingToken()) == 1;
+  }
+
+  /** Kafka retry exhaustion may terminate PENDING only; it cannot overwrite an active/terminal row. */
   @Transactional
   public void markExhausted(long sandboxSessionId) {
-    reviews.findBySandboxSessionId(sandboxSessionId).ifPresent(r -> {
-      if ("PENDING".equals(r.getStatus())) {
-        r.setStatus("FAILED");
-        r.setErrorCode("LLM_EXHAUSTED");
-        reviews.save(r);
-      }
-    });
+    int changed = jdbc.update("UPDATE ai_code_reviews SET status='FAILED', "
+            + "error_code='LLM_EXHAUSTED' WHERE sandbox_session_id=? AND status='PENDING'",
+        sandboxSessionId);
+    if (changed == 1) markSessionInboxProcessed(sandboxSessionId);
   }
 
+  /** Conditional terminal transition fenced by the exact processing token. */
+  @Transactional
+  public boolean finishDone(ReviewClaim claim, ReviewResult result, String provider) {
+    int changed = jdbc.update("UPDATE ai_code_reviews SET status='DONE', provider=?, confidence=?, "
+            + "strengths=CAST(? AS jsonb), improvements=CAST(? AS jsonb), "
+            + "security=CAST(? AS jsonb), error_code=NULL, processing_token=NULL, "
+            + "lease_expires_at=NULL WHERE id=? AND status='PROCESSING' AND processing_token=?",
+        provider,
+        Math.max(0, Math.min(100, result.confidence())),
+        toJson(result.strengths()), toJson(result.improvements()), toJson(result.security()),
+        claim.reviewId(), claim.processingToken());
+    if (changed == 1) markSessionInboxProcessed(claim.sandboxSessionId());
+    return changed == 1;
+  }
+
+  /** Conditional terminal transition fenced by the exact processing token. */
+  @Transactional
+  public boolean finishFailed(ReviewClaim claim, String errorCode) {
+    int changed = jdbc.update("UPDATE ai_code_reviews SET status='FAILED', error_code=?, "
+            + "processing_token=NULL, lease_expires_at=NULL "
+            + "WHERE id=? AND status='PROCESSING' AND processing_token=?",
+        errorCode, claim.reviewId(), claim.processingToken());
+    if (changed == 1) markSessionInboxProcessed(claim.sandboxSessionId());
+    return changed == 1;
+  }
+
+  /** Legacy test/support transition: PENDING only, never an active or terminal review. */
   @Transactional
   public void finishDone(long reviewId, ReviewResult result, String provider) {
-    AiCodeReview r = reviews.findById(reviewId).orElseThrow();
-    r.setStatus("DONE");
-    r.setProvider(provider);
-    // LLM이 스키마(integer)만 지키고 범위(0~100)를 벗어난 값을 줄 수 있다. DB CHECK(chk_ai_review_confidence)
-    // 위반으로 정상 리뷰 본문이 통째로 FAILED 되는 것을 막기 위해 [0,100]으로 클램프한다.
-    r.setConfidence(Math.max(0, Math.min(100, result.confidence())));
-    r.setStrengths(toJson(result.strengths()));
-    r.setImprovements(toJson(result.improvements()));
-    r.setSecurity(toJson(result.security()));
-    reviews.save(r);
+    jdbc.update("UPDATE ai_code_reviews SET status='DONE', provider=?, confidence=?, "
+            + "strengths=CAST(? AS jsonb), improvements=CAST(? AS jsonb), "
+            + "security=CAST(? AS jsonb), error_code=NULL "
+            + "WHERE id=? AND status='PENDING'",
+        provider,
+        Math.max(0, Math.min(100, result.confidence())),
+        toJson(result.strengths()), toJson(result.improvements()), toJson(result.security()),
+        reviewId);
   }
 
+  /** Legacy test/support transition: PENDING only, never an active or terminal review. */
   @Transactional
   public void finishFailed(long reviewId, String errorCode) {
-    AiCodeReview r = reviews.findById(reviewId).orElseThrow();
-    r.setStatus("FAILED");
-    r.setErrorCode(errorCode);
-    reviews.save(r);
+    jdbc.update("UPDATE ai_code_reviews SET status='FAILED', error_code=? "
+        + "WHERE id=? AND status='PENDING'", errorCode, reviewId);
+  }
+
+  private void markInboxProcessedWhenReviewIsTerminal(UUID eventId) {
+    jdbc.update("UPDATE ai_review_event_inbox inbox SET processed_at=CURRENT_TIMESTAMP "
+            + "WHERE inbox.event_id=? AND inbox.processed_at IS NULL AND EXISTS ("
+            + "SELECT 1 FROM ai_code_reviews review "
+            + "WHERE review.sandbox_session_id=inbox.sandbox_session_id "
+            + "AND review.status IN ('DONE','FAILED'))",
+        eventId);
+  }
+
+  private void markSessionInboxProcessed(long sandboxSessionId) {
+    jdbc.update("UPDATE ai_review_event_inbox SET processed_at=CURRENT_TIMESTAMP "
+            + "WHERE sandbox_session_id=? AND processed_at IS NULL",
+        sandboxSessionId);
   }
 
   private String toJson(List<?> value) {
     try {
       return jsonMapper.writeValueAsString(value);
     } catch (Exception e) {
-      throw new IllegalStateException("리뷰 결과 직렬화 실패", e);
+      throw new IllegalStateException("review result serialization failed", e);
     }
   }
 }
