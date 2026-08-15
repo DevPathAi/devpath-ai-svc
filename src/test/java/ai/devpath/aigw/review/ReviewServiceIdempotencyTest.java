@@ -97,6 +97,29 @@ class ReviewServiceIdempotencyTest {
     assertThat(reviews.findBySandboxSessionId(sid).orElseThrow().getStatus()).isEqualTo("DONE");
   }
 
+  @Test
+  void differentEventCannotTurnAnotherEventsActiveLeaseIntoInfiniteRetry() {
+    sid = positiveId();
+    persistence.claim(UUID.randomUUID(), sid, 42L, 3L, Duration.ofMinutes(5)).orElseThrow();
+
+    assertThat(service.reviewRun(UUID.randomUUID(), sid, 42L, 3L))
+        .isEqualTo(ReviewDisposition.REJECTED);
+
+    verify(aiReviewClient, times(0)).review(any());
+  }
+
+  @Test
+  void differentUserCannotTurnAnotherUsersActiveLeaseIntoInfiniteRetry() {
+    sid = positiveId();
+    UUID eventId = UUID.randomUUID();
+    persistence.claim(eventId, sid, 42L, 3L, Duration.ofMinutes(5)).orElseThrow();
+
+    assertThat(service.reviewRun(eventId, sid, 84L, 3L))
+        .isEqualTo(ReviewDisposition.REJECTED);
+
+    verify(aiReviewClient, times(0)).review(any());
+  }
+
   private void stubSuccessfulProvider() {
     when(sandboxClient.getSession(anyLong())).thenReturn(session());
     when(aiReviewClient.providerName()).thenReturn("MOCK");

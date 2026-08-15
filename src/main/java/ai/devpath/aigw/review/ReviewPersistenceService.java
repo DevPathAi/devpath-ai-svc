@@ -86,12 +86,26 @@ public class ReviewPersistenceService {
         claimed.getFirst(), sandboxSessionId, eventId, processingToken));
   }
 
+  /**
+   * Classifies a failed claim only when the inbox event, session, owner, and original provider
+   * effect all match. An unrelated event must never inherit another review's retrying lease.
+   */
   @Transactional(readOnly = true)
-  public boolean isProcessing(long sandboxSessionId) {
-    List<Boolean> states = jdbc.query(
-        "SELECT status='PROCESSING' FROM ai_code_reviews WHERE sandbox_session_id=?",
-        (rs, rowNum) -> rs.getBoolean(1), sandboxSessionId);
-    return !states.isEmpty() && states.getFirst();
+  public ReviewDisposition dispositionForDeniedClaim(
+      UUID eventId, long sandboxSessionId, long userId) {
+    List<String> states = jdbc.query(
+        "SELECT review.status FROM ai_review_event_inbox inbox "
+            + "JOIN ai_code_reviews review "
+            + "ON review.sandbox_session_id=inbox.sandbox_session_id "
+            + "WHERE inbox.event_id=? AND inbox.sandbox_session_id=? "
+            + "AND review.user_id=? AND review.source_event_id=?",
+        (rs, rowNum) -> rs.getString(1), eventId, sandboxSessionId, userId, eventId);
+    if (states.isEmpty()) return ReviewDisposition.REJECTED;
+    return switch (states.getFirst()) {
+      case "PENDING", "PROCESSING" -> ReviewDisposition.IN_PROGRESS;
+      case "DONE", "FAILED" -> ReviewDisposition.TERMINAL_DUPLICATE;
+      default -> ReviewDisposition.REJECTED;
+    };
   }
 
   /** Release only the current fenced worker so Kafka may retry a transient provider failure. */

@@ -17,6 +17,13 @@ An expired lease permits recovery after a process crash.
 When a redelivered Kafka record finds an unexpired lease, it remains unacknowledged and is retried
 until that lease either reaches a terminal state or expires; a restart therefore cannot ACK away the
 only recovery trigger.
+That retry decision is bound to the same event ID, sandbox session, owner, and original review row.
+Mismatched events or owners are rejected and acknowledged instead of inheriting another review's
+active lease and poisoning a Kafka partition with an infinite retry.
+
+A provider success and its terminal database write are separate failure domains. If the terminal
+write fails, the persistence exception is retried through the lease path; it is never rewritten as
+an `LLM_FAILED` provider outcome.
 
 The database and Kafka boundary cannot prove exactly-once execution if a worker crashes after the
 provider accepted a request but before the terminal database update. Providers that expose an

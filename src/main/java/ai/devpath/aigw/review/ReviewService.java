@@ -41,43 +41,56 @@ public class ReviewService {
       UUID eventId, long sandboxSessionId, long userId, Long contentId) {
     var maybeClaim = persistence.claim(
         eventId, sandboxSessionId, userId, contentId, processingLease);
-    if (maybeClaim.isEmpty()) return currentDisposition(sandboxSessionId);
+    if (maybeClaim.isEmpty()) {
+      return persistence.dispositionForDeniedClaim(eventId, sandboxSessionId, userId);
+    }
 
     ReviewClaim claim = maybeClaim.get();
+    SandboxSessionView session;
     try {
-      SandboxSessionView session = sandboxClient.getSession(sandboxSessionId);
-      if (session.userId() == null || session.userId() != userId) {
-        return terminalDisposition(
-            persistence.finishFailed(claim, "OWNERSHIP_MISMATCH"), sandboxSessionId);
-      }
-      ReviewResult result = aiReviewClient.review(new ReviewInput(
-          session.language(), session.submittedCode(),
-          session.stdout(), session.stderr(), session.exitCode()));
-      if (persistence.finishDone(claim, result, aiReviewClient.providerName())) {
-        return ReviewDisposition.COMPLETED;
-      }
-    } catch (TransientReviewException e) {
-      if (persistence.releaseForRetry(claim)) throw e;
-    } catch (PermanentReviewException e) {
-      return terminalDisposition(
-          persistence.finishFailed(claim, e.errorCode()), sandboxSessionId);
+      session = sandboxClient.getSession(sandboxSessionId);
     } catch (SandboxUnavailableException e) {
       return terminalDisposition(
-          persistence.finishFailed(claim, "SANDBOX_UNAVAILABLE"), sandboxSessionId);
+          persistence.finishFailed(claim, "SANDBOX_UNAVAILABLE"), claim, userId);
+    }
+    if (session.userId() == null || session.userId() != userId) {
+      return terminalDisposition(
+          persistence.finishFailed(claim, "OWNERSHIP_MISMATCH"), claim, userId);
+    }
+
+    ReviewResult result;
+    String provider;
+    try {
+      provider = aiReviewClient.providerName();
+      result = aiReviewClient.review(new ReviewInput(
+          session.language(), session.submittedCode(),
+          session.stdout(), session.stderr(), session.exitCode()));
+    } catch (TransientReviewException e) {
+      if (persistence.releaseForRetry(claim)) throw e;
+      return persistence.dispositionForDeniedClaim(
+          claim.eventId(), claim.sandboxSessionId(), userId);
+    } catch (PermanentReviewException e) {
+      return terminalDisposition(
+          persistence.finishFailed(claim, e.errorCode()), claim, userId);
     } catch (RuntimeException e) {
       return terminalDisposition(
-          persistence.finishFailed(claim, "LLM_FAILED"), sandboxSessionId);
+          persistence.finishFailed(claim, "LLM_FAILED"), claim, userId);
     }
-    return currentDisposition(sandboxSessionId);
+
+    // Persistence is intentionally outside the provider exception boundary. If this write fails,
+    // Kafka retry/lease recovery must handle it; the successful provider effect is not LLM_FAILED.
+    if (persistence.finishDone(claim, result, provider)) {
+      return ReviewDisposition.COMPLETED;
+    }
+    return persistence.dispositionForDeniedClaim(
+        claim.eventId(), claim.sandboxSessionId(), userId);
   }
 
-  private ReviewDisposition currentDisposition(long sandboxSessionId) {
-    return persistence.isProcessing(sandboxSessionId)
-        ? ReviewDisposition.IN_PROGRESS
-        : ReviewDisposition.TERMINAL_DUPLICATE;
-  }
-
-  private ReviewDisposition terminalDisposition(boolean finished, long sandboxSessionId) {
-    return finished ? ReviewDisposition.COMPLETED : currentDisposition(sandboxSessionId);
+  private ReviewDisposition terminalDisposition(
+      boolean finished, ReviewClaim claim, long userId) {
+    return finished
+        ? ReviewDisposition.COMPLETED
+        : persistence.dispositionForDeniedClaim(
+            claim.eventId(), claim.sandboxSessionId(), userId);
   }
 }

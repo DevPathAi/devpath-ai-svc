@@ -4,5 +4,7 @@ package ai.devpath.aigw.review;
 public enum ReviewDisposition {
   COMPLETED,
   TERMINAL_DUPLICATE,
-  IN_PROGRESS
+  IN_PROGRESS,
+  /** The event is not bound to the same session, owner, and original provider effect. */
+  REJECTED
 }
