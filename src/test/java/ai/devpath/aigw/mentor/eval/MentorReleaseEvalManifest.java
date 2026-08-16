@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -55,6 +56,7 @@ record MentorReleaseEvalManifest(
 
   static MentorReleaseEvalManifest create(Inputs inputs) {
     inputs.validateIdentifiers();
+    validateCanonicalRenderedConfig(inputs.renderedConfig());
     List<Model> models = runtimeModels(
         inputs.renderedConfig(), inputs.applicationConfig(), inputs.evaluationEndpoints());
     if (models.size() != 2) {
@@ -360,6 +362,7 @@ record MentorReleaseEvalManifest(
         modelId = configured(runtime, defaults, "MENTOR_OLLAMA_MODEL");
         endpoint = configured(runtime, defaults, "OLLAMA_BASE_URL");
         evaluationEndpoint = required(evaluationEndpoints, "ollama");
+        ollamaEvaluationEndpointSha256(evaluationEndpoint);
         credentialEnv = null;
       }
       case "claude" -> {
@@ -443,6 +446,64 @@ record MentorReleaseEvalManifest(
       return Files.readString(path, StandardCharsets.UTF_8);
     } catch (Exception failure) {
       throw new IllegalArgumentException(label + " is missing", failure);
+    }
+  }
+
+  private static void validateCanonicalRenderedConfig(Path path) {
+    try {
+      byte[] bytes = Files.readAllBytes(path);
+      String text = new String(bytes, StandardCharsets.UTF_8);
+      if (bytes.length == 0
+          || !java.util.Arrays.equals(bytes, text.getBytes(StandardCharsets.UTF_8))
+          || text.startsWith("\uFEFF")
+          || text.contains("\r")
+          || !text.endsWith("\n")) {
+        throw new IllegalArgumentException(
+            "rendered config must be canonical UTF-8 LF output");
+      }
+    } catch (IllegalArgumentException failure) {
+      throw failure;
+    } catch (Exception failure) {
+      throw new IllegalArgumentException("rendered config is missing", failure);
+    }
+  }
+
+  static String ollamaEvaluationEndpointSha256(String value) {
+    try {
+      URI uri = URI.create(value);
+      String host = uri.getHost();
+      int port = uri.getPort();
+      if (!"https".equalsIgnoreCase(uri.getScheme())
+          || host == null
+          || !host.matches("[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
+          || host.contains("..")
+          || uri.getUserInfo() != null
+          || uri.getQuery() != null
+          || uri.getFragment() != null
+          || port == 0
+          || port > 65_535) {
+        throw new IllegalArgumentException("Ollama evaluation endpoint is invalid");
+      }
+      String path = uri.getRawPath();
+      if (path == null) path = "";
+      if (path.contains("\\") || path.contains("%") || path.contains("//")) {
+        throw new IllegalArgumentException("Ollama evaluation endpoint path is ambiguous");
+      }
+      for (String segment : path.split("/", -1)) {
+        if (".".equals(segment) || "..".equals(segment)) {
+          throw new IllegalArgumentException("Ollama evaluation endpoint path is ambiguous");
+        }
+      }
+      while (path.endsWith("/")) {
+        path = path.substring(0, path.length() - 1);
+      }
+      String canonical = "https://" + host.toLowerCase(Locale.ROOT)
+          + (port == -1 || port == 443 ? "" : ":" + port) + path;
+      return sha256(canonical);
+    } catch (IllegalArgumentException failure) {
+      throw failure;
+    } catch (RuntimeException failure) {
+      throw new IllegalArgumentException("Ollama evaluation endpoint is invalid", failure);
     }
   }
 

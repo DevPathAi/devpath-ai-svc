@@ -104,6 +104,33 @@ tasks.register<JavaExec>("verifyMentorReleaseEvalEvidence") {
 	args("verify-evidence")
 }
 
+tasks.register<JavaExec>("generateMissionSpineReleaseEvalEvidence") {
+	group = "verification"
+	description = "Adapt fresh ET9 evaluation results into sanitized Mission Spine evidence"
+	dependsOn(tasks.testClasses)
+	classpath = sourceSets["test"].runtimeClasspath
+	mainClass.set("ai.devpath.aigw.mentor.eval.MissionSpineReleaseEvalEvidenceCli")
+	args("generate")
+}
+
+tasks.register<JavaExec>("validateMissionSpineReleaseEvalCandidate") {
+	group = "verification"
+	description = "Fail closed unless the canonical candidate binds exact ET9 release inputs"
+	dependsOn(tasks.testClasses)
+	classpath = sourceSets["test"].runtimeClasspath
+	mainClass.set("ai.devpath.aigw.mentor.eval.MissionSpineReleaseEvalEvidenceCli")
+	args("preflight")
+}
+
+tasks.register<JavaExec>("validateMissionSpineReleaseEvalEvidence") {
+	group = "verification"
+	description = "Reopen and fail closed on Mission Spine release evaluation evidence drift"
+	dependsOn(tasks.testClasses)
+	classpath = sourceSets["test"].runtimeClasspath
+	mainClass.set("ai.devpath.aigw.mentor.eval.MissionSpineReleaseEvalEvidenceCli")
+	args("validate")
+}
+
 val runtimeClasspath = configurations.named("runtimeClasspath")
 val bootJar = tasks.named<BootJar>("bootJar")
 

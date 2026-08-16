@@ -41,6 +41,25 @@ class MentorEvalConfigurationTest {
   }
 
   @Test
+  void insecureOrAmbiguousOllamaEvalEndpointFailsBeforeAnyModelCall() throws Exception {
+    for (String invalid : java.util.List.of(
+        "http://eval-ollama.example.test/api",
+        "https://user@eval-ollama.example.test/api",
+        "https://eval-ollama.example.test/api?mode=mock",
+        "https://eval-ollama.example.test/api#mock",
+        "https://eval-ollama.example.test/api/../mock",
+        "https://eval-ollama.example.test/api//mock")) {
+      Map<String, String> environment = environment(rendered());
+      environment.put("MENTOR_EVAL_OLLAMA_BASE_URL", invalid);
+
+      assertThatThrownBy(() -> MentorReleaseEvalManifest.create(
+          MentorReleaseEvalManifest.Inputs.fromEnvironment(environment)))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("Ollama evaluation endpoint");
+    }
+  }
+
+  @Test
   void missingFallbackCredentialFailsPreflightBeforeAnyModelCall() throws Exception {
     Map<String, String> environment = environment(rendered());
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(
