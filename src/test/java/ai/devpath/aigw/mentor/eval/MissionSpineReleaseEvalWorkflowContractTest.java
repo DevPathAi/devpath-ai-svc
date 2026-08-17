@@ -18,7 +18,7 @@ class MissionSpineReleaseEvalWorkflowContractTest {
   @Test
   void workflowIsDispatchOnlyPinnedProtectedAndPublishesOneRunScopedFile()
       throws Exception {
-    String text = Files.readString(WORKFLOW);
+    String text = Files.readString(WORKFLOW).replace("\r\n", "\n");
     Map<String, Object> workflow = new Yaml().load(text);
     Object triggerValue = workflow.containsKey("on")
         ? workflow.get("on")
