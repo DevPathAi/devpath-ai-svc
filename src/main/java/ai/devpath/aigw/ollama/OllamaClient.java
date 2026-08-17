@@ -24,20 +24,32 @@ public class OllamaClient {
   private static final int TOTAL_WEEKS = 12;
   private static final List<String> TASK_TYPES = List.of("READ", "PRACTICE", "QUIZ");
 
-  private final RestClient restClient;
+  private final RestClient embedClient;
+  private final RestClient pathClient;
   private final JsonMapper jsonMapper;
   private final String genModel;
   private final String embedModel;
 
+  /**
+   * 경로 생성은 임베딩과 다른 Ollama 로 보낼 수 있다. 생성은 GPU 노드에서 분 단위로 돌지만
+   * 임베딩은 2초짜리라 같은 타임아웃을 쓰면 장애 감지가 그만큼 늦어진다. 값을 주지 않으면
+   * 기존처럼 하나의 주소·타임아웃을 함께 쓴다.
+   */
   public OllamaClient(
       @Value("${devpath.ollama.base-url:http://localhost:11434}") String baseUrl,
+      @Value("${devpath.ollama.path-base-url:${devpath.ollama.base-url:http://localhost:11434}}") String pathBaseUrl,
       @Value("${devpath.ollama.gen-model:qwen2.5:7b}") String genModel,
       @Value("${devpath.ollama.embed-model:nomic-embed-text}") String embedModel,
       @Value("${devpath.ollama.timeout:PT8S}") Duration timeout,
+      @Value("${devpath.ollama.path-timeout:${devpath.ollama.timeout:PT8S}}") Duration pathTimeout,
       JsonMapper jsonMapper) {
-    this.restClient = RestClient.builder()
+    this.embedClient = RestClient.builder()
         .baseUrl(baseUrl)
         .requestFactory(requestFactory(timeout))
+        .build();
+    this.pathClient = RestClient.builder()
+        .baseUrl(pathBaseUrl)
+        .requestFactory(requestFactory(pathTimeout))
         .build();
     this.jsonMapper = jsonMapper;
     this.genModel = genModel;
@@ -51,7 +63,7 @@ public class OllamaClient {
 
     OllamaEmbedResponse response;
     try {
-      response = restClient.post()
+      response = embedClient.post()
           .uri("/api/embed")
           .body(body)
           .retrieve()
@@ -95,7 +107,7 @@ public class OllamaClient {
     body.put("options", Map.of("temperature", 0.2));
 
     try {
-      OllamaChatResponse response = restClient.post()
+      OllamaChatResponse response = pathClient.post()
           .uri("/api/chat")
           .body(body)
           .retrieve()
