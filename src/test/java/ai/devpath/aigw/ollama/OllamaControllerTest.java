@@ -136,6 +136,73 @@ class OllamaControllerTest {
     assertTrue(body.contains("Spring MVC"));
   }
 
+  /**
+   * 서비스의 콘텐츠·문항·멘토 응답은 모두 한국어인데 학습경로만 영어로 나왔다(2026-08-17 로컬 실측).
+   * 프롬프트에 언어 지시가 없었기 때문이다. taskType 값은 계약상 ASCII 그대로 유지해야 한다.
+   */
+  @Test
+  void generatePathPromptRequiresKoreanProseAndAsciiTaskTypes() throws Exception {
+    OLLAMA.enqueue(jsonResponse(chatBody(validPathContent())));
+
+    post("/ai/path/generate", pathRequest());
+
+    String body = OLLAMA.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8();
+    assertTrue(body.contains("in Korean"), "프롬프트가 한국어 출력을 지시해야 한다");
+    assertTrue(body.contains("READ"), "taskType 값은 영문 그대로 유지되어야 한다");
+  }
+
+  /** 12주 로드맵을 약속하고 total_weeks 도 12로 저장하므로, 주차 수를 스키마에서 고정한다. */
+  @Test
+  void generatePathSchemaPinsTwelveMilestones() throws Exception {
+    OLLAMA.enqueue(jsonResponse(chatBody(validPathContent())));
+
+    post("/ai/path/generate", pathRequest());
+
+    String body = OLLAMA.takeRequest(1, TimeUnit.SECONDS).getBody().readUtf8();
+    assertTrue(body.contains("\"minItems\":12"), "milestones 최소 12개를 스키마로 고정해야 한다");
+    assertTrue(body.contains("\"maxItems\":12"), "milestones 최대 12개를 스키마로 고정해야 한다");
+  }
+
+  /**
+   * 로컬 실측에서 qwen2.5:14b 가 weekNum 1·2·4 로 3개만 냈는데 계약이 통과시켰다.
+   * total_weeks 는 12로 저장되므로 3주짜리 경로가 12주로 표시된다.
+   */
+  @Test
+  void generatePathRejectsIncompleteWeekCoverage() throws Exception {
+    OLLAMA.enqueue(jsonResponse(chatBody(pathContentWithWeeks(List.of(1, 2, 4), validTasks()))));
+    OLLAMA.enqueue(jsonResponse(chatBody(pathContentWithWeeks(List.of(1, 2, 4), validTasks()))));
+
+    MvcResult response = post("/ai/path/generate", pathRequest());
+
+    assertEquals(HttpStatus.BAD_GATEWAY.value(), response.getResponse().getStatus());
+    assertTrue(response.getResponse().getContentAsString().contains("12"));
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+  }
+
+  /** 주차 번호가 중복되면 12개여도 12주를 덮지 못한다. */
+  @Test
+  void generatePathRejectsDuplicatedWeekNumbers() throws Exception {
+    List<Integer> duplicated = new java.util.ArrayList<>(IntStream.rangeClosed(1, 11).boxed().toList());
+    duplicated.add(11);
+    OLLAMA.enqueue(jsonResponse(chatBody(pathContentWithWeeks(duplicated, validTasks()))));
+    OLLAMA.enqueue(jsonResponse(chatBody(pathContentWithWeeks(duplicated, validTasks()))));
+
+    MvcResult response = post("/ai/path/generate", pathRequest());
+
+    assertEquals(HttpStatus.BAD_GATEWAY.value(), response.getResponse().getStatus());
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+    assertEquals("/api/chat", OLLAMA.takeRequest(1, TimeUnit.SECONDS).getPath());
+  }
+
+  private List<Map<String, Object>> validTasks() {
+    return List.of(
+        task(1, "READ", "Spring MVC 읽기", true),
+        task(2, "PRACTICE", "Controller 작성", true),
+        task(3, "QUIZ", "HTTP 상태코드 점검", false)
+    );
+  }
+
   @Test
   void generatePathRetriesMalformedContentOnceThenReturnsBadGateway() throws Exception {
     OLLAMA.enqueue(jsonResponse(chatBody("not-json")));
@@ -328,18 +395,26 @@ class OllamaControllerTest {
   }
 
   private String pathContentWithTasks(List<Map<String, Object>> tasks) throws Exception {
+    return pathContent(IntStream.rangeClosed(1, 12).boxed().toList(), tasks);
+  }
+
+  private String pathContentWithWeeks(List<Integer> weekNums, List<Map<String, Object>> tasks) throws Exception {
+    return pathContent(weekNums, tasks);
+  }
+
+  private String pathContent(List<Integer> weekNums, List<Map<String, Object>> tasks) throws Exception {
     return jsonMapper.writeValueAsString(Map.of(
         "rationale", "백엔드 기초를 먼저 다진 뒤 실전 과제로 확장합니다.",
-        "milestones", List.of(Map.of(
-            "weekNum", 1,
-            "title", "Spring Boot foundations",
+        "milestones", weekNums.stream().map(week -> Map.<String, Object>of(
+            "weekNum", week,
+            "title", week + "주차 Spring Boot foundations",
             "goalDescription", "REST API와 테스트 기본기를 익힙니다.",
             "targetSkills", List.of("Spring MVC", "JUnit"),
             "estimatedHours", 6,
             "whyThisOrder", "진단 결과에서 API 설계가 약점으로 확인되었습니다.",
             "expectedOutcome", "간단한 CRUD API를 테스트와 함께 만들 수 있습니다.",
             "tasks", tasks
-        ))
+        )).toList()
     ));
   }
 
