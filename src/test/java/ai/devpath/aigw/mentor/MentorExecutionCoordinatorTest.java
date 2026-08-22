@@ -229,6 +229,11 @@ class MentorExecutionCoordinatorTest {
 
     coordinator.start(1L, "blocked-self", null, approvedContext(), emitter);
     assertThat(tokenSendEntered.await(1, TimeUnit.SECONDS)).isTrue();
+    // 작업 스레드 기동이 첫 하트비트(provider/2)보다 늦으면 차단 전에 정당한 keepalive 가
+    // 배달될 수 있다(CI 부하에서 실측된 flake). 계약은 「차단 중·종결 후 무배달」이므로
+    // 차단 진입 시점을 기준선으로 삼는다 — 하트비트 전송은 transport 로 직렬화되어
+    // 이 시점 이후 관측값 증가는 곧 억제 실패다.
+    int heartbeatsBeforeBlock = emitter.heartbeatAttempts.get();
 
     verify(persistence, timeout(500)).saveFailed(1L, "blocked-self", null, "",
         CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
@@ -242,7 +247,7 @@ class MentorExecutionCoordinatorTest {
     await().atMost(Duration.ofMillis(500))
         .untilAsserted(() -> assertThat(emitter.terminalAttempts.get()).isEqualTo(1));
     assertThat(emitter.queuedTokenAttempts.get()).isZero();
-    assertThat(emitter.heartbeatAttempts.get()).isZero();
+    assertThat(emitter.heartbeatAttempts.get()).isEqualTo(heartbeatsBeforeBlock);
     verify(persistence, times(1)).saveFailed(1L, "blocked-self", null, "",
         CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
   }
