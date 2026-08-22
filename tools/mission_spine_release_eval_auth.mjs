@@ -1294,10 +1294,13 @@ async function authenticate(parsed) {
       ) {
         continue;
       }
+      // 조직 팀 멤버십은 members:read 를 가진 App 토큰(gitopsToken =
+      // devpath-evidence-reader)으로 읽는다 — sourceToken 은 github.token 으로
+      // 전환되어 조직 수준 API 를 읽을 수 없다(2026-08-22 레거시 App 비밀 폐기).
       const membership = await githubOptional(
         `/orgs/DevPathAi/teams/${encodeURIComponent(entry.reviewer.slug)}` +
           `/memberships/${encodeURIComponent(reviewer.login)}`,
-        sourceToken,
+        gitopsToken,
       );
       if (
         membership?.state === 'active' &&
