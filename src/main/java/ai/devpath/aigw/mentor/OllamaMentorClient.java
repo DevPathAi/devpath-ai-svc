@@ -26,7 +26,7 @@ public class OllamaMentorClient implements AiMentorClient {
   public OllamaMentorClient(
       @Value("${devpath.ollama.base-url:http://localhost:11434}") String baseUrl,
       @Value("${devpath.mentor.ollama-model:qwen2.5:7b}") String model,
-      @Value("${devpath.mentor.timeout:PT60S}") Duration timeout,
+      @Value("${devpath.mentor.provider-timeout:PT50S}") Duration timeout,
       MentorPromptBuilder prompts, JsonMapper jsonMapper) {
     var factory = new SimpleClientHttpRequestFactory();
     factory.setConnectTimeout(timeout);
@@ -48,6 +48,10 @@ public class OllamaMentorClient implements AiMentorClient {
     body.put("options", Map.of("temperature", 0.4));
 
     restClient.post().uri("/api/chat").body(body).exchange((req, res) -> {
+      if (!res.getStatusCode().is2xxSuccessful()) {
+        throw new IllegalStateException("mentor provider returned non-success status");
+      }
+      boolean completed = false;
       try (BufferedReader reader = new BufferedReader(
           new InputStreamReader(res.getBody(), StandardCharsets.UTF_8))) {
         String line;
@@ -56,8 +60,14 @@ public class OllamaMentorClient implements AiMentorClient {
           JsonNode node = jsonMapper.readTree(line);
           String delta = node.path("message").path("content").asString("");
           if (!delta.isEmpty()) tokenSink.accept(delta);
-          if (node.path("done").asBoolean(false)) break;
+          if (node.path("done").asBoolean(false)) {
+            completed = true;
+            break;
+          }
         }
+      }
+      if (!completed) {
+        throw new IllegalStateException("mentor provider stream ended before done");
       }
       return null;
     });

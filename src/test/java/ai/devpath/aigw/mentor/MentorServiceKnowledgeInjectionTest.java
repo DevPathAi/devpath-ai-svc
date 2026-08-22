@@ -2,7 +2,6 @@ package ai.devpath.aigw.mentor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,9 +32,7 @@ class MentorServiceKnowledgeInjectionTest {
 
   @Test
   void putsKnowledgeChunksIntoTheMentorInput() {
-    var contextAssembler = mock(MentorContextAssembler.class);
-    when(contextAssembler.assemble(anyLong(), any()))
-        .thenReturn(new MentorContext("맥락", "{}", "BACKEND_SPRING"));
+    var contextAssembler = new MentorContextAssembler();
 
     // MentorService가 질문 임베딩을 한 번만 계산해 findByEmbedding에 재사용한다(리뷰 Important #2 이후
     // 배선). find(String,String)/find(String)은 더 이상 호출되지 않으므로 stub 대상을 findByEmbedding으로 옮긴다.
@@ -48,10 +45,13 @@ class MentorServiceKnowledgeInjectionTest {
 
     var client = new CapturingClient();
     var persistence = mock(MentorPersistenceService.class);
+    var mapper = JsonMapper.builder().build();
     var service = new MentorService(contextAssembler, referenceService, knowledgeService,
-        client, persistence, JsonMapper.builder().build());
+        client, mapper);
+    var terminal = new MentorSessionTerminal(persistence, mapper, new SseEmitter(),
+        1L, "Pod Identity가 뭔가요?", null, MentorContextAssembler.EMPTY_CONTEXT_JSON);
 
-    service.streamAnswer(1L, "Pod Identity가 뭔가요?", null, new SseEmitter());
+    service.streamAnswer("Pod Identity가 뭔가요?", null, terminal);
 
     assertThat(client.captured.get()).isNotNull();
     assertThat(client.captured.get().referenceDocs()).containsExactly(chunk);
@@ -59,9 +59,7 @@ class MentorServiceKnowledgeInjectionTest {
 
   @Test
   void knowledgeFailureDoesNotStopTheAnswer() {
-    var contextAssembler = mock(MentorContextAssembler.class);
-    when(contextAssembler.assemble(anyLong(), any()))
-        .thenReturn(new MentorContext("맥락", "{}", null));
+    var contextAssembler = new MentorContextAssembler();
 
     var referenceService = mock(MentorReferenceService.class);
     when(referenceService.findByEmbedding(any(), any())).thenReturn(List.of());
@@ -70,10 +68,14 @@ class MentorServiceKnowledgeInjectionTest {
     when(knowledgeService.findByEmbedding(any())).thenReturn(List.of());   // 검색 실패 → 빈 리스트
 
     var client = new CapturingClient();
+    var persistence = mock(MentorPersistenceService.class);
+    var mapper = JsonMapper.builder().build();
     var service = new MentorService(contextAssembler, referenceService, knowledgeService,
-        client, mock(MentorPersistenceService.class), JsonMapper.builder().build());
+        client, mapper);
+    var terminal = new MentorSessionTerminal(persistence, mapper, new SseEmitter(),
+        1L, "질문", null, MentorContextAssembler.EMPTY_CONTEXT_JSON);
 
-    service.streamAnswer(1L, "질문", null, new SseEmitter());
+    service.streamAnswer("질문", null, terminal);
 
     assertThat(client.captured.get().referenceDocs()).isEmpty();
   }

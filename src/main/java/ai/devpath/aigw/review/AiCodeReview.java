@@ -9,6 +9,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -29,6 +30,9 @@ public class AiCodeReview {
   @JdbcTypeCode(SqlTypes.JSON) private String security = "[]";
   private String feedback;
   @Column(name = "error_code") private String errorCode;
+  @Column(name = "processing_token") private UUID processingToken;
+  @Column(name = "lease_expires_at") private Instant leaseExpiresAt;
+  @Column(name = "source_event_id") private UUID sourceEventId;
   @Column(name = "created_at", nullable = false) private Instant createdAt;
   @Column(name = "updated_at", nullable = false) private Instant updatedAt;
 
@@ -65,6 +69,9 @@ public class AiCodeReview {
   public void setFeedback(String v) { this.feedback = v; }
   public String getErrorCode() { return errorCode; }
   public void setErrorCode(String v) { this.errorCode = v; }
+  public UUID getProcessingToken() { return processingToken; }
+  public Instant getLeaseExpiresAt() { return leaseExpiresAt; }
+  public UUID getSourceEventId() { return sourceEventId; }
   public Instant getCreatedAt() { return createdAt; }
   public Instant getUpdatedAt() { return updatedAt; }
 }

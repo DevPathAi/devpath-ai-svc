@@ -2,6 +2,8 @@ package ai.devpath.aigw.mentor;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,7 +19,19 @@ import org.springframework.context.annotation.Configuration;
 public class MentorClaudeClientConfig {
 
   @Bean(name = "mentorAnthropicClient")
-  public AnthropicClient mentorAnthropicClient() {
-    return AnthropicOkHttpClient.fromEnv(); // ANTHROPIC_API_KEY
+  public AnthropicClient mentorAnthropicClient(
+      @Value("${ANTHROPIC_API_KEY}") String apiKey,
+      @Value("${devpath.mentor.claude-base-url:https://api.anthropic.com}") String baseUrl,
+      MentorTimeoutPolicy timeouts) {
+    return buildClient(apiKey, baseUrl, timeouts.providerTimeout());
+  }
+
+  static AnthropicClient buildClient(String apiKey, String baseUrl, Duration timeout) {
+    return AnthropicOkHttpClient.builder()
+        .apiKey(apiKey)
+        .baseUrl(baseUrl)
+        .timeout(timeout)
+        .maxRetries(0)
+        .build();
   }
 }

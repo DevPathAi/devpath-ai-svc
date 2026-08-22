@@ -1,7 +1,6 @@
 package ai.devpath.aigw.mentor;
 
 import com.anthropic.client.AnthropicClient;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -9,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,14 +28,15 @@ public class MentorClientConfig {
       @Value("${devpath.mentor.fallback:}") String fallbackCsv,
       @Value("${devpath.ollama.base-url:http://localhost:11434}") String ollamaBaseUrl,
       @Value("${devpath.mentor.ollama-model:qwen2.5:7b}") String ollamaModel,
-      @Value("${devpath.mentor.timeout:PT60S}") Duration timeout,
       @Value("${devpath.mentor.claude-model:claude-sonnet-4-6}") String claudeModel,
-      MentorPromptBuilder prompts, JsonMapper jsonMapper,
+      MentorTimeoutPolicy timeouts, MentorPromptBuilder prompts, JsonMapper jsonMapper,
+      @Qualifier("mentorAnthropicClient")
       ObjectProvider<AnthropicClient> anthropicClientProvider) {
 
     Map<String, AiMentorClient> available = new LinkedHashMap<>();
     available.put("ollama",
-        new OllamaMentorClient(ollamaBaseUrl, ollamaModel, timeout, prompts, jsonMapper));
+        new OllamaMentorClient(
+            ollamaBaseUrl, ollamaModel, timeouts.providerTimeout(), prompts, jsonMapper));
     available.put("mock", new MockMentorClient());
     AnthropicClient anthropic = anthropicClientProvider.getIfAvailable();
     if (anthropic != null) {

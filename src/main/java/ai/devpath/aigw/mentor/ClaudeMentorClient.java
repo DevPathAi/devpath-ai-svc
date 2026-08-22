@@ -38,11 +38,23 @@ public class ClaudeMentorClient implements AiMentorClient {
         .build();
     // anthropic-java 2.34.0 blocking 스트리밍: StreamResponse<RawMessageStreamEvent>.
     // content_block_delta 이벤트의 text_delta.text를 tokenSink로 push.
+    boolean[] stopped = {false};
     try (StreamResponse<RawMessageStreamEvent> stream = client.messages().createStreaming(params)) {
-      stream.stream()
-          .flatMap(event -> event.contentBlockDelta().stream())
-          .flatMap(deltaEvent -> deltaEvent.delta().text().stream())
-          .forEach(textDelta -> tokenSink.accept(textDelta.text()));
+      stream.stream().forEach(event -> {
+        if (stopped[0]) {
+          throw new IllegalStateException("mentor provider emitted data after message_stop");
+        }
+        if (event.messageStop().isPresent()) {
+          stopped[0] = true;
+          return;
+        }
+        event.contentBlockDelta().stream()
+            .flatMap(deltaEvent -> deltaEvent.delta().text().stream())
+            .forEach(textDelta -> tokenSink.accept(textDelta.text()));
+      });
+    }
+    if (!stopped[0]) {
+      throw new IllegalStateException("mentor provider stream ended before message_stop");
     }
   }
 

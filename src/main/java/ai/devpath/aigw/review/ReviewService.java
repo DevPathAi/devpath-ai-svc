@@ -1,10 +1,13 @@
 package ai.devpath.aigw.review;
 
+import java.time.Duration;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * 리뷰 오케스트레이션. PENDING 선삽입(짧은 tx) → 세션 조회 + LLM(트랜잭션 밖) → DONE/FAILED(짧은 tx).
- * 자기호출 프록시 우회를 피하려 tx 메서드는 ReviewPersistenceService에 둔다(슬라이스 #3/#5 패턴).
+ * Review orchestration with a short database claim, provider call outside a transaction, and a
+ * fenced terminal update. The lease prevents duplicate/rolling consumers from sharing ownership.
  */
 @Service
 public class ReviewService {
@@ -12,38 +15,82 @@ public class ReviewService {
   private final ReviewPersistenceService persistence;
   private final SandboxClient sandboxClient;
   private final AiReviewClient aiReviewClient;
+  private final Duration processingLease;
 
-  public ReviewService(ReviewPersistenceService persistence, SandboxClient sandboxClient,
-      AiReviewClient aiReviewClient) {
+  public ReviewService(
+      ReviewPersistenceService persistence,
+      SandboxClient sandboxClient,
+      AiReviewClient aiReviewClient,
+      @Value("${devpath.review.processing-lease:PT5M}") Duration processingLease) {
     this.persistence = persistence;
     this.sandboxClient = sandboxClient;
     this.aiReviewClient = aiReviewClient;
+    if (processingLease.isZero() || processingLease.isNegative()) {
+      throw new IllegalArgumentException("review processing lease must be positive");
+    }
+    this.processingLease = processingLease;
   }
 
-  public void reviewRun(long sandboxSessionId, long userId, Long contentId) {
-    AiCodeReview review = persistence.findOrCreatePending(sandboxSessionId, userId, contentId);
-    if ("DONE".equals(review.getStatus()) || "FAILED".equals(review.getStatus())) {
-      return; // 터미널 → 멱등 skip
+  /** Compatibility for direct legacy callers that did not carry an outbox eventId. */
+  public ReviewDisposition reviewRun(long sandboxSessionId, long userId, Long contentId) {
+    return reviewRun(
+        ReviewEventIdentity.legacy(sandboxSessionId), sandboxSessionId, userId, contentId);
+  }
+
+  public ReviewDisposition reviewRun(
+      UUID eventId, long sandboxSessionId, long userId, Long contentId) {
+    var maybeClaim = persistence.claim(
+        eventId, sandboxSessionId, userId, contentId, processingLease);
+    if (maybeClaim.isEmpty()) {
+      return persistence.dispositionForDeniedClaim(eventId, sandboxSessionId, userId);
     }
-    long reviewId = review.getId();
+
+    ReviewClaim claim = maybeClaim.get();
+    SandboxSessionView session;
     try {
-      SandboxSessionView session = sandboxClient.getSession(sandboxSessionId);
-      if (session.userId() == null || session.userId() != userId) {
-        persistence.finishFailed(reviewId, "OWNERSHIP_MISMATCH");
-        return;
-      }
-      ReviewResult result = aiReviewClient.review(new ReviewInput(
+      session = sandboxClient.getSession(sandboxSessionId);
+    } catch (SandboxUnavailableException e) {
+      return terminalDisposition(
+          persistence.finishFailed(claim, "SANDBOX_UNAVAILABLE"), claim, userId);
+    }
+    if (session.userId() == null || session.userId() != userId) {
+      return terminalDisposition(
+          persistence.finishFailed(claim, "OWNERSHIP_MISMATCH"), claim, userId);
+    }
+
+    ReviewResult result;
+    String provider;
+    try {
+      provider = aiReviewClient.providerName();
+      result = aiReviewClient.review(new ReviewInput(
           session.language(), session.submittedCode(),
           session.stdout(), session.stderr(), session.exitCode()));
-      persistence.finishDone(reviewId, result, aiReviewClient.providerName());
     } catch (TransientReviewException e) {
-      throw e; // PENDING 유지 → Kafka 재시도
+      if (persistence.releaseForRetry(claim)) throw e;
+      return persistence.dispositionForDeniedClaim(
+          claim.eventId(), claim.sandboxSessionId(), userId);
     } catch (PermanentReviewException e) {
-      persistence.finishFailed(reviewId, e.errorCode());
-    } catch (SandboxUnavailableException e) {
-      persistence.finishFailed(reviewId, "SANDBOX_UNAVAILABLE");
+      return terminalDisposition(
+          persistence.finishFailed(claim, e.errorCode()), claim, userId);
     } catch (RuntimeException e) {
-      persistence.finishFailed(reviewId, "LLM_FAILED"); // 예상밖 → 터미널(재시도 안 함)
+      return terminalDisposition(
+          persistence.finishFailed(claim, "LLM_FAILED"), claim, userId);
     }
+
+    // Persistence is intentionally outside the provider exception boundary. If this write fails,
+    // Kafka retry/lease recovery must handle it; the successful provider effect is not LLM_FAILED.
+    if (persistence.finishDone(claim, result, provider)) {
+      return ReviewDisposition.COMPLETED;
+    }
+    return persistence.dispositionForDeniedClaim(
+        claim.eventId(), claim.sandboxSessionId(), userId);
+  }
+
+  private ReviewDisposition terminalDisposition(
+      boolean finished, ReviewClaim claim, long userId) {
+    return finished
+        ? ReviewDisposition.COMPLETED
+        : persistence.dispositionForDeniedClaim(
+            claim.eventId(), claim.sandboxSessionId(), userId);
   }
 }
