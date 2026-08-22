@@ -12,10 +12,16 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    postgresql:
+      # V202608161002 creates indexes concurrently outside a transaction.
+      # A transactional advisory lock would wait on its own Flyway connection.
+      transactional-lock: false
   jpa:
     hibernate:
       ddl-auto: none
 
 devpath:
+  auth:
+    internal-token: test-internal-token
   review:
     provider: mock

@@ -41,4 +41,18 @@ class MentorPersistenceServiceTest {
     assertThat(s.getAnswer()).isEmpty();
     repo.deleteById(id);
   }
+
+  @Test
+  void saveFailedPreservesDeliveredPartialAnswerReferencesAndProvider() {
+    long id = persistence.saveFailed(42L, "q", 7L, "부분 답변", "{}",
+        "[{\"contentId\":1}]", "OLLAMA", "AI_TIMEOUT");
+
+    AiMentorSession session = repo.findById(id).orElseThrow();
+    assertThat(session.getStatus()).isEqualTo("FAILED");
+    assertThat(session.getErrorCode()).isEqualTo("AI_TIMEOUT");
+    assertThat(session.getAnswer()).isEqualTo("부분 답변");
+    assertThat(session.getReferenceLinks()).contains("contentId");
+    assertThat(session.getProvider()).isEqualTo("OLLAMA");
+    repo.deleteById(id);
+  }
 }

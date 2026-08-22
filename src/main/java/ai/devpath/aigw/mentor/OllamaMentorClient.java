@@ -9,16 +9,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** dev 멘토(Ollama, /api/chat stream:true NDJSON 델타). 인젝션 방어는 MentorPromptBuilder. */
-@Component
-@ConditionalOnProperty(name = "devpath.mentor.provider", havingValue = "ollama")
+/** dev 멘토(Ollama, /api/chat stream:true NDJSON 델타). 인젝션 방어는 MentorPromptBuilder.
+ *  빈 등록/선택은 MentorClientConfig 팩토리가 담당한다(직접 @Component 아님). */
 public class OllamaMentorClient implements AiMentorClient {
 
   private final RestClient restClient;
@@ -29,7 +26,7 @@ public class OllamaMentorClient implements AiMentorClient {
   public OllamaMentorClient(
       @Value("${devpath.ollama.base-url:http://localhost:11434}") String baseUrl,
       @Value("${devpath.mentor.ollama-model:qwen2.5:7b}") String model,
-      @Value("${devpath.mentor.timeout:PT60S}") Duration timeout,
+      @Value("${devpath.mentor.provider-timeout:PT50S}") Duration timeout,
       MentorPromptBuilder prompts, JsonMapper jsonMapper) {
     var factory = new SimpleClientHttpRequestFactory();
     factory.setConnectTimeout(timeout);
@@ -51,6 +48,10 @@ public class OllamaMentorClient implements AiMentorClient {
     body.put("options", Map.of("temperature", 0.4));
 
     restClient.post().uri("/api/chat").body(body).exchange((req, res) -> {
+      if (!res.getStatusCode().is2xxSuccessful()) {
+        throw new IllegalStateException("mentor provider returned non-success status");
+      }
+      boolean completed = false;
       try (BufferedReader reader = new BufferedReader(
           new InputStreamReader(res.getBody(), StandardCharsets.UTF_8))) {
         String line;
@@ -59,8 +60,14 @@ public class OllamaMentorClient implements AiMentorClient {
           JsonNode node = jsonMapper.readTree(line);
           String delta = node.path("message").path("content").asString("");
           if (!delta.isEmpty()) tokenSink.accept(delta);
-          if (node.path("done").asBoolean(false)) break;
+          if (node.path("done").asBoolean(false)) {
+            completed = true;
+            break;
+          }
         }
+      }
+      if (!completed) {
+        throw new IllegalStateException("mentor provider stream ended before done");
       }
       return null;
     });

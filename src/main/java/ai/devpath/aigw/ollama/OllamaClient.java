@@ -20,22 +20,36 @@ public class OllamaClient {
 
   private static final int EMBEDDING_DIMENSIONS = 768;
   private static final int TASKS_PER_MILESTONE = 3;
+  /** 제품이 약속하는 로드맵 길이. learning-svc 도 learning_paths.total_weeks 를 12로 저장한다. */
+  private static final int TOTAL_WEEKS = 12;
   private static final List<String> TASK_TYPES = List.of("READ", "PRACTICE", "QUIZ");
 
-  private final RestClient restClient;
+  private final RestClient embedClient;
+  private final RestClient pathClient;
   private final JsonMapper jsonMapper;
   private final String genModel;
   private final String embedModel;
 
+  /**
+   * 경로 생성은 임베딩과 다른 Ollama 로 보낼 수 있다. 생성은 GPU 노드에서 분 단위로 돌지만
+   * 임베딩은 2초짜리라 같은 타임아웃을 쓰면 장애 감지가 그만큼 늦어진다. 값을 주지 않으면
+   * 기존처럼 하나의 주소·타임아웃을 함께 쓴다.
+   */
   public OllamaClient(
       @Value("${devpath.ollama.base-url:http://localhost:11434}") String baseUrl,
+      @Value("${devpath.ollama.path-base-url:${devpath.ollama.base-url:http://localhost:11434}}") String pathBaseUrl,
       @Value("${devpath.ollama.gen-model:qwen2.5:7b}") String genModel,
       @Value("${devpath.ollama.embed-model:nomic-embed-text}") String embedModel,
       @Value("${devpath.ollama.timeout:PT8S}") Duration timeout,
+      @Value("${devpath.ollama.path-timeout:${devpath.ollama.timeout:PT8S}}") Duration pathTimeout,
       JsonMapper jsonMapper) {
-    this.restClient = RestClient.builder()
+    this.embedClient = RestClient.builder()
         .baseUrl(baseUrl)
         .requestFactory(requestFactory(timeout))
+        .build();
+    this.pathClient = RestClient.builder()
+        .baseUrl(pathBaseUrl)
+        .requestFactory(requestFactory(pathTimeout))
         .build();
     this.jsonMapper = jsonMapper;
     this.genModel = genModel;
@@ -49,7 +63,7 @@ public class OllamaClient {
 
     OllamaEmbedResponse response;
     try {
-      response = restClient.post()
+      response = embedClient.post()
           .uri("/api/embed")
           .body(body)
           .retrieve()
@@ -93,7 +107,7 @@ public class OllamaClient {
     body.put("options", Map.of("temperature", 0.2));
 
     try {
-      OllamaChatResponse response = restClient.post()
+      OllamaChatResponse response = pathClient.post()
           .uri("/api/chat")
           .body(body)
           .retrieve()
@@ -125,6 +139,7 @@ public class OllamaClient {
         || response.milestones().isEmpty()) {
       throw new OllamaContractException("Ollama path 응답 필수 필드가 없습니다");
     }
+    validateWeekCoverage(response);
     for (PathGenerateResponse.Milestone milestone : response.milestones()) {
       if (milestone.weekNum() <= 0 || isBlank(milestone.title()) || isBlank(milestone.goalDescription())
           || milestone.targetSkills() == null || milestone.targetSkills().isEmpty()
@@ -145,6 +160,28 @@ public class OllamaClient {
       }
     }
     return response;
+  }
+
+  /**
+   * 12주 로드맵을 약속하고 learning_paths.total_weeks 도 12로 저장하므로, 주차가 비거나 겹치면
+   * 저장된 경로가 라벨과 어긋난다. 실측에서 모델이 1·2·4주만 낸 적이 있어 여기서 막는다.
+   */
+  private void validateWeekCoverage(PathGenerateResponse response) {
+    if (response.milestones().size() != TOTAL_WEEKS) {
+      throw new OllamaContractException(
+          "Ollama path 응답은 마일스톤 " + TOTAL_WEEKS + "개가 필요합니다: " + response.milestones().size());
+    }
+    boolean[] covered = new boolean[TOTAL_WEEKS + 1];
+    for (PathGenerateResponse.Milestone milestone : response.milestones()) {
+      int week = milestone.weekNum();
+      if (week < 1 || week > TOTAL_WEEKS) {
+        throw new OllamaContractException("Ollama path weekNum 은 1~" + TOTAL_WEEKS + " 이어야 합니다: " + week);
+      }
+      if (covered[week]) {
+        throw new OllamaContractException("Ollama path weekNum 이 중복되었습니다: " + week);
+      }
+      covered[week] = true;
+    }
   }
 
   private PathGenerateResponse normalize(PathGenerateResponse response) {
@@ -178,7 +215,13 @@ public class OllamaClient {
     return """
         You generate a personalized 12-week software learning path.
         Return only JSON matching the provided schema.
+        Produce exactly 12 milestones with weekNum 1 through 12, each week used once.
         Each milestone must include exactly 3 practical, concise tasks.
+        Every week must cover a distinct topic; never repeat a milestone.
+        Order the weeks so the learner's weakness concepts are addressed first.
+        Write every human-readable field in Korean: title, goalDescription, targetSkills,
+        whyThisOrder, expectedOutcome, task title, and rationale.
+        Keep taskType values exactly as READ, PRACTICE, or QUIZ in English.
         Do not include markdown fences or commentary.
         """;
   }
@@ -224,7 +267,8 @@ public class OllamaClient {
         List.of("rationale", "milestones"),
         Map.of(
             "rationale", Map.of("type", "string"),
-            "milestones", Map.of("type", "array", "items", milestone)
+            "milestones", Map.of("type", "array", "minItems", TOTAL_WEEKS, "maxItems", TOTAL_WEEKS,
+                "items", milestone)
         ));
   }
 

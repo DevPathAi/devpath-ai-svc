@@ -19,14 +19,15 @@ class SandboxClientRecentTest {
   void setUp() throws Exception {
     server = new MockWebServer();
     server.start();
-    client = new SandboxClient(server.url("/").toString(), Duration.ofSeconds(5));
+    client = new SandboxClient(
+        server.url("/").toString(), Duration.ofSeconds(5), "test-internal-token");
   }
 
   @AfterEach
   void tearDown() throws Exception { server.shutdown(); }
 
   @Test
-  void recentByUserParsesSessionList() {
+  void recentByUserParsesSessionList() throws Exception {
     server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
         .setBody("[{\"id\":2,\"userId\":42,\"language\":\"PYTHON\",\"contentId\":null,"
             + "\"submittedCode\":\"print(2)\",\"stdout\":\"2\",\"stderr\":\"\",\"exitCode\":0,"
@@ -36,6 +37,8 @@ class SandboxClientRecentTest {
 
     assertThat(recent).hasSize(1);
     assertThat(recent.get(0).submittedCode()).isEqualTo("print(2)");
+    assertThat(server.takeRequest().getHeader("X-DevPath-Internal-Token"))
+        .isEqualTo("test-internal-token");
   }
 
   @Test
