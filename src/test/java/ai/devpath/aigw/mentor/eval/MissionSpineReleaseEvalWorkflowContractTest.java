@@ -65,6 +65,13 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .contains("./gradlew clean --no-build-cache")
         .contains("./gradlew test --tests 'ai.devpath.aigw.mentor.eval.*'")
         .contains("mentorReleaseArtifactFunctionalTest")
+        .contains("ollama/ollama:0.32.5@sha256:98c19ced6600f2924e80b92d701cd867d8f7ef0c4dde516c619484e31e47f103")
+        .contains("--publish 127.0.0.1:11434:11434")
+        .contains("EXPECTED_OLLAMA_MODEL_DIGEST: 357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b")
+        .contains("python3 tools/ollama_tls_proxy.py")
+        .contains("--host 127.0.0.1", "--port 11435")
+        .contains("keytool -importcert")
+        .contains("-Djavax.net.ssl.trustStore=${{ runner.temp }}/mission-spine-release-eval/mentor-eval-cacerts")
         .contains("validateMissionSpineReleaseEvalCandidate")
         .contains("MISSION_SPINE_CANDIDATE: ${{ runner.temp }}/mission-spine-release-eval/candidate-spec.json")
         .contains("./gradlew generateMissionSpineReleaseEvalEvidence")
@@ -116,6 +123,9 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .isEqualTo(1);
     assertThat(count(text, "MENTOR_EVAL_OLLAMA_BASE_URL:"))
         .isEqualTo(1);
+    assertThat(text)
+        .contains("MENTOR_EVAL_OLLAMA_BASE_URL: https://127.0.0.1:11435")
+        .doesNotContain("vars.MENTOR_EVAL_OLLAMA_BASE_URL");
     assertThat(text).contains("ollama_endpoint_sha256");
     assertThat(text).doesNotContain("synthetic", "mock-pass", "fixture-pass");
   }
