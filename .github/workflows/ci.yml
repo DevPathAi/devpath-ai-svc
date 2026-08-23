@@ -32,6 +32,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.0.0
+      - name: Test loopback-only Ollama TLS proxy
+        run: python3 -m unittest tools.ollama_tls_proxy_test
       - run: >-
           ./gradlew clean build prepareMentorReleaseArtifacts
           -DimmutableSharedContract=true
