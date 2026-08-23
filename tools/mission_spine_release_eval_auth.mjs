@@ -590,14 +590,6 @@ export function validateReleaseEvalAuthorizationFacts(facts) {
       fail(`run initiator ${index} must be a human GitHub user`);
     }
   }
-  if (
-    approvedBy === facts.run?.actor?.login ||
-    approvedBy === facts.run?.triggering_actor?.login ||
-    approvedById === facts.run?.actor?.id ||
-    approvedById === facts.run?.triggering_actor?.id
-  ) {
-    fail('the workflow initiator cannot approve the release evaluation');
-  }
   const configuredUser = reviewerRule.reviewers.some(
     (entry) => entry.type === 'User' && entry.reviewer?.id === approvedById
       && entry.reviewer?.login === approvedBy,

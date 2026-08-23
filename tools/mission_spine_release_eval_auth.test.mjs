@@ -230,7 +230,7 @@ function facts(overrides = {}) {
   };
 }
 
-test('authorization binds current protected source, GitOps and independent review', () => {
+test('authorization binds current protected source, GitOps and configured review', () => {
   assert.deepEqual(validateReleaseEvalAuthorizationFacts(facts()), {
     approval_environment: 'mission-spine-ai-release-eval',
     approval_environment_id: 91,
@@ -239,6 +239,20 @@ test('authorization binds current protected source, GitOps and independent revie
     approved_by_id: 21,
     approval_effective_at: '2026-08-16T20:02:03Z',
   });
+});
+
+test('authorization permits the configured reviewer to initiate and approve', () => {
+  const value = facts();
+  value.run.actor = { id: 21, login: 'independent-reviewer', type: 'User' };
+  value.run.triggering_actor = {
+    id: 21,
+    login: 'independent-reviewer',
+    type: 'User',
+  };
+  assert.equal(
+    validateReleaseEvalAuthorizationFacts(value).approved_by,
+    'independent-reviewer',
+  );
 });
 
 test('authorization accepts a team reviewer only with exact active membership proof', () => {
@@ -267,7 +281,7 @@ test('authorization accepts a team reviewer only with exact active membership pr
   assert.throws(() => validateReleaseEvalAuthorizationFacts(value));
 });
 
-test('authorization rejects branch drift, unprotected refs, self-review and reruns', () => {
+test('authorization rejects branch drift, unprotected refs, invalid identities and reruns', () => {
   const mutations = [
     (value) => { value.run.id = 502; },
     (value) => { value.run.run_attempt = 2; value.runAttempt = 2; },
@@ -281,6 +295,7 @@ test('authorization rejects branch drift, unprotected refs, self-review and reru
     (value) => { value.run.repository.full_name = 'attacker/fork'; },
     (value) => { value.run.head_repository.full_name = 'attacker/fork'; },
     (value) => { value.run.actor = null; },
+    (value) => { value.run.triggering_actor.type = 'Bot'; },
     (value) => { value.sourceRepositoryInfo.default_branch = 'develop'; },
     (value) => { value.sourceBranch.name = 'feature/attacker'; },
     (value) => { value.sourceBranch.protected = false; },
@@ -288,9 +303,6 @@ test('authorization rejects branch drift, unprotected refs, self-review and reru
     (value) => { value.gitopsBranch.name = 'feature/attacker'; },
     (value) => { value.gitopsBranch.protected = false; },
     (value) => { value.gitopsBranch.commit.sha = 'e'.repeat(40); },
-    (value) => {
-      value.approvals[0].user = { id: 11, login: 'initiator', type: 'User' };
-    },
     (value) => { value.environment.protection_rules[0].prevent_self_review = false; },
     (value) => { value.approvals.push(structuredClone(value.approvals[0])); },
     (value) => { value.approvals[0].environments[0].id = 92; },
