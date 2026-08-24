@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ai.devpath.aigw.release.ReleaseJourneyRegistry;
 import java.io.IOException;
 import java.net.http.HttpTimeoutException;
 import java.util.ArrayList;
@@ -182,6 +183,45 @@ class MentorServiceTest {
 
     verify(persistence).saveFailed(42L, "q", 7L, "fallback partial", empty, "[]",
         "FALLBACK", "AI_PROVIDER_UNAVAILABLE");
+  }
+
+  @Test
+  void releaseFaultFailsAfterOneTokenAndRetryUsesTheExactSameProviderInput() {
+    String candidate = "a".repeat(64);
+    String runKey = "R".repeat(43);
+    String envelope = "{\"snapshotId\":23,\"purpose\":\"mentor_prompt\","
+        + "\"visibility\":\"private\",\"fieldsIncluded\":[],\"content\":{}}";
+    MentorSnapshotContext approved = new MentorSnapshotContext(
+        23L, envelope, "{\"fieldsIncluded\":[],\"content\":{}}");
+    when(contextAssembler.assemble(approved)).thenReturn(
+        new MentorContext(approved.providerContextJson(), envelope, null));
+    doAnswer(invocation -> {
+      Consumer<String> provider = invocation.getArgument(2);
+      Consumer<String> sink = invocation.getArgument(1);
+      provider.accept("MOCK");
+      sink.accept("stable partial");
+      return null;
+    }).when(mentorClient).stream(any(), any(), any());
+    ReleaseJourneyRegistry release = new ReleaseJourneyRegistry(true, mapper);
+    release.arm(candidate, runKey, 42L, "fail-next-mentor");
+    MentorService service = new MentorService(
+        contextAssembler, referenceService, knowledgeService, mentorClient, mapper, release);
+
+    var first = release.mentorAttempt(candidate, runKey, 42L, true);
+    service.streamAnswer("q", approved,
+        terminal(new RecordingEmitter(), 42L, "q", 7L, envelope), first);
+    assertThat(release.checkpoint(candidate, runKey, "mentor-partial-retained")).isTrue();
+
+    release.clear(candidate, runKey, 42L);
+    var retry = release.mentorAttempt(candidate, runKey, 42L, true);
+    service.streamAnswer("q", approved,
+        terminal(new RecordingEmitter(), 42L, "q", 7L, envelope), retry);
+
+    assertThat(release.checkpoint(candidate, runKey, "mentor-provider-payload-exact")).isTrue();
+    assertThat(release.checkpoint(candidate, runKey, "mentor-terminal-complete")).isTrue();
+    verify(persistence).saveFailed(42L, "q", 7L, "stable partial", envelope, "[]",
+        "MOCK", "AI_PROVIDER_UNAVAILABLE");
+    verify(persistence).saveDone(42L, "q", 7L, "stable partial", envelope, "[]", "MOCK");
   }
 
   private static AiMentorClient client(String provider, StreamBehavior behavior) {

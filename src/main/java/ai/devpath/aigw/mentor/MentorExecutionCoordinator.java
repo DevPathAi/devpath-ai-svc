@@ -1,5 +1,6 @@
 package ai.devpath.aigw.mentor;
 
+import ai.devpath.aigw.release.ReleaseJourneyRegistry;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -39,11 +40,26 @@ public class MentorExecutionCoordinator {
   public SseEmitter start(long userId, String question, Long contentId,
       MentorSnapshotContext approvedContext) {
     return start(userId, question, contentId, approvedContext,
+        ReleaseJourneyRegistry.MentorAttempt.NONE,
+        new SseEmitter(timeouts.sseTimeout().toMillis()));
+  }
+
+  public SseEmitter start(long userId, String question, Long contentId,
+      MentorSnapshotContext approvedContext, ReleaseJourneyRegistry.MentorAttempt releaseAttempt) {
+    return start(userId, question, contentId, approvedContext, releaseAttempt,
         new SseEmitter(timeouts.sseTimeout().toMillis()));
   }
 
   SseEmitter start(long userId, String question, Long contentId,
       MentorSnapshotContext approvedContext, SseEmitter emitter) {
+    return start(userId, question, contentId, approvedContext,
+        ReleaseJourneyRegistry.MentorAttempt.NONE, emitter);
+  }
+
+  SseEmitter start(long userId, String question, Long contentId,
+      MentorSnapshotContext approvedContext,
+      ReleaseJourneyRegistry.MentorAttempt releaseAttempt,
+      SseEmitter emitter) {
     String snapshotJson = approvedContext == null
         ? MentorContextAssembler.EMPTY_CONTEXT_JSON : approvedContext.envelopeJson();
     MentorTerminalIoDispatcher.Reservation ioReservation = terminalIo.reserve();
@@ -59,7 +75,11 @@ public class MentorExecutionCoordinator {
       work = executor.submit(() -> {
         try {
           terminal.workerStarted();
-          mentorService.streamAnswer(question, approvedContext, terminal);
+          if (releaseAttempt.tracked()) {
+            mentorService.streamAnswer(question, approvedContext, terminal, releaseAttempt);
+          } else {
+            mentorService.streamAnswer(question, approvedContext, terminal);
+          }
         } catch (MentorSessionTerminal.MentorTerminalClosedException ignored) {
           // Deadline/client callback already owns the terminal transition.
         } catch (RuntimeException ignored) {
