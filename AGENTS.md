@@ -1,0 +1,75 @@
+# CLAUDE.md — devpath-ai-svc
+
+> AI 서비스 — AI Gateway, 코드 리뷰 워커, FinOps (2nd Aha)
+>
+> **현재 구현 상태(2026-07-02)**: 이 레포의 dev 빌드는 Ollama gateway다. 현재 구현 API는 `POST /ai/embed`, `POST /ai/path/generate`이며, 운영 목표는 Claude 등 provider 교체 가능한 AI Gateway다.
+
+## 🚫 절대 조건 — 모든 작업에 예외 없이 적용
+
+아래 세 가지는 이 레포의 **어떤 작업에도 우선하는 최상위 규칙**이다. 개별 지시가 이를 명시적으로 면제하지 않는 한 항상 따른다.
+
+### 1. 추측·예상 금지
+- 코드·설정·동작·의존성을 **추측하지 않는다.** 모르면 파일을 읽고 명령을 실행해 사실을 확인한 뒤 행동한다.
+- "아마 ~일 것이다", "보통 ~하다" 같은 가정에 기반한 변경·답변·커밋을 금지한다.
+- 확인이 불가능하면 진행을 멈추고 묻는다. 모르는 것을 아는 척하지 않는다.
+
+### 2. 테스트 코드 우선 (Test-First)
+- 모든 기능 추가·수정은 **실패하는 테스트를 먼저 작성**하고, 그 테스트를 통과시키는 최소 구현을 작성한다.
+- 테스트 없는 구현 변경을 금지한다. 변경 후에는 반드시 테스트를 실행해 통과를 **눈으로 확인**한다.
+- 구체적 테스트·검증 명령은 아래 "빌드·테스트" 절을 따른다.
+
+### 3. 문제 발생 시 코드 분석 우선
+- 버그·테스트 실패·예상 밖 동작이 생기면 **추측으로 고치지 않는다.** 먼저 관련 코드·로그·스택트레이스를 읽어 근본 원인을 규명한다.
+- 증상만 덮는 임시방편(땜질)을 금지한다. 원인을 설명할 수 있을 때만 수정한다.
+
+### 4. 신규 작업은 무조건 신규 브랜치
+- 모든 신규 작업은 시작 전 `develop`에서 **새 작업 브랜치**(`feat/*`·`fix/*`·`chore/*`·`docs/*`)를 분기해 그 위에서 진행한다. `develop`·`main` 등 공유/통합 브랜치에서 **직접 작업하지 않는다**.
+- 이유: **여러 세션이 동시에 작업할 때 파일 관리 충돌을 예방**한다. 미커밋 변경을 공유 브랜치 working tree에 방치하지 않는다.
+
+### 5. 결과를 자화자찬하지 않는다 — 항상 검증·테스트로 확인
+- 작업 결과를 스스로 칭찬·과신하지 않는다. "완료했다", "문제없다"는 **검증·테스트로 확인한 근거가 있을 때만** 말한다.
+- 당장 문제가 없어 보여도 **모든 작업은 항상 엄격하게 검증·테스트**해 결과를 확인한다. 검증되지 않은 성공·완료를 보고하지 않는다.
+
+## 빌드·테스트
+
+- 빌드: `./gradlew build`
+- 테스트: `./gradlew test` (JUnit 5)
+- 실행: `./gradlew bootRun` (포트 8080)
+- 스택: Spring Boot 4.0.7 · Java 21 · Gradle (Kotlin DSL)
+- 패키지: `ai.devpath.aigw` / 메인: `AiApplication`
+- 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_GEN_MODEL`, `OLLAMA_TIMEOUT`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
+
+> 이 레포는 [devpath-svc-template](https://github.com/DevPathAi/devpath-svc-template)에서 파생되었다.
+
+## 도메인
+
+| 모듈 | 역할 |
+|------|------|
+| ai-gateway | 현재 dev: Ollama embed/path 생성 위임 · 운영 목표: Claude 등 provider 단일 진입점 |
+| mentor | AI 멘토 채팅 세션 — 구현됨 |
+| review | AI 코드 리뷰 조회/피드백 — 구현됨. Kafka Consumer 비동기 트리거는 후속(목표) |
+| community | 커뮤니티 AI 시드 답변 생성(Claude/Ollama, `CommunitySeedConsumer`가 Kafka 이벤트 소비) — 구현됨 |
+| finops | 토큰 사용량/비용 집계 (목표) |
+## 공통 규칙
+
+- Git: Conventional Commits — [documents/09_Git_규칙_정의서](https://github.com/DevPathAi/documents/blob/main/09_Git_규칙_정의서.md)
+- 코드 리뷰: [documents/12_코드_리뷰_규칙](https://github.com/DevPathAi/documents/blob/main/12_코드_리뷰_규칙.md)
+- 테스트 전략: [documents/11_테스트_전략서](https://github.com/DevPathAi/documents/blob/main/11_테스트_전략서.md)
+- 비밀값(운영 LLM provider 키·OAuth·결제 키)은 절대 커밋하지 않는다.
+- 진행 현황은 `docs/project-management/`에 기록 → [workflow-dashboard](https://devpathai.github.io/workflow-dashboard/)가 동기화.
+
+
+## 🚫 서브에이전트 작업 범위 강제 (Scope Lock) — 모든 작업 공통
+
+- 서브에이전트(Task/Agent)에 위임 시 **작업 경계를 명시적으로 못박는다**: "이 작업만 수행하고 끝나면 보고 후 정지. 다른 Task로 진행하거나 명세에 없는 코드를 임의 구현 금지. 명세 부족 시 멈추고 NEEDS_CONTEXT 보고."
+- 서브에이전트는 **부여된 단일 Task의 명세만** 구현한다. 추측·즉흥(improvise) 금지.
+- 위임 결과는 **컨트롤러가 직접 검증**한다(커밋 로그·파일 구조·테스트 실행). 완료 보고를 그대로 신뢰하지 않는다.
+- 범위 이탈 산출물은 수용하지 말고, 미푸시면 정상 지점으로 reset 후 플랜대로 재구현한다.
+
+## 📚 study-documents 연계 (상시 참조)
+
+- 마스터 카탈로그: [documents/41_study-documents_연계_카탈로그.md](https://github.com/DevPathAi/documents/blob/main/41_study-documents_연계_카탈로그.md)
+- 이 레포 관련 자산:
+  - 스킬: `/devpath-skillpack:spring-setup` · `:domain-modeler` · `:code-reviewer` · `:complexity-analyzer` · `:test-coverage-booster` · `:error-detective` · `:postgres-mcp-tuner` · `:brooks-lint-arch`
+  - Sample Codes: Spring Boot 4 JPA·분산락·SSE·Audit·WebClient (study-documents `Sample Codes/🐤 Spring_Boot_4_*`)
+  - 가이드: CQRS·Query-port·MSA 디자인 패턴
