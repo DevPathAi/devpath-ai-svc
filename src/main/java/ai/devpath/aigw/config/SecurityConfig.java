@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -34,14 +35,24 @@ public class SecurityConfig {
   }
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  public InternalApiAuthenticationFilter internalApiAuthenticationFilter(
+      @Value("${devpath.auth.internal-token:}") String internalToken) {
+    return new InternalApiAuthenticationFilter(internalToken);
+  }
+
+  @Bean
+  public SecurityFilterChain securityFilterChain(
+      HttpSecurity http,
+      InternalApiAuthenticationFilter internalApiAuthenticationFilter) throws Exception {
     http
         .csrf(csrf -> csrf.disable())
         .authorizeHttpRequests(authorize -> authorize
             .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+            .requestMatchers("/internal/**").hasRole("INTERNAL")
             // 기존 Ollama 게이트웨이(/ai/**)는 learning-svc가 호출하는 내부 엔드포인트 — 무인증 유지(pre-C1 동작 보존).
             .requestMatchers("/ai/**").permitAll()
             .anyRequest().authenticated())
+        .addFilterBefore(internalApiAuthenticationFilter, BearerTokenAuthenticationFilter.class)
         .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()));
     return http.build();
   }
