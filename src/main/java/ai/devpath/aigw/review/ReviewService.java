@@ -1,7 +1,9 @@
 package ai.devpath.aigw.review;
 
+import ai.devpath.aigw.release.ReleaseJourneyRegistry;
 import java.time.Duration;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -16,19 +18,31 @@ public class ReviewService {
   private final SandboxClient sandboxClient;
   private final AiReviewClient aiReviewClient;
   private final Duration processingLease;
+  private final ReleaseJourneyRegistry release;
 
+  @Autowired
   public ReviewService(
       ReviewPersistenceService persistence,
       SandboxClient sandboxClient,
       AiReviewClient aiReviewClient,
-      @Value("${devpath.review.processing-lease:PT5M}") Duration processingLease) {
+      @Value("${devpath.review.processing-lease:PT5M}") Duration processingLease,
+      ReleaseJourneyRegistry release) {
     this.persistence = persistence;
     this.sandboxClient = sandboxClient;
     this.aiReviewClient = aiReviewClient;
+    this.release = release;
     if (processingLease.isZero() || processingLease.isNegative()) {
       throw new IllegalArgumentException("review processing lease must be positive");
     }
     this.processingLease = processingLease;
+  }
+
+  ReviewService(
+      ReviewPersistenceService persistence,
+      SandboxClient sandboxClient,
+      AiReviewClient aiReviewClient,
+      Duration processingLease) {
+    this(persistence, sandboxClient, aiReviewClient, processingLease, null);
   }
 
   /** Compatibility for direct legacy callers that did not carry an outbox eventId. */
@@ -58,6 +72,19 @@ public class ReviewService {
           persistence.finishFailed(claim, "OWNERSHIP_MISMATCH"), claim, userId);
     }
 
+    if (release != null) {
+      var releaseFault = release.consumeReview(
+          userId, eventId, sandboxSessionId, contentId);
+      if (releaseFault.isPresent()) {
+        if (persistence.finishReleaseFailed(claim)) {
+          release.recordReviewFailure(releaseFault.get());
+          return ReviewDisposition.IN_PROGRESS;
+        }
+        return persistence.dispositionForDeniedClaim(
+            claim.eventId(), claim.sandboxSessionId(), userId);
+      }
+    }
+
     ReviewResult result;
     String provider;
     try {
@@ -80,6 +107,9 @@ public class ReviewService {
     // Persistence is intentionally outside the provider exception boundary. If this write fails,
     // Kafka retry/lease recovery must handle it; the successful provider effect is not LLM_FAILED.
     if (persistence.finishDone(claim, result, provider)) {
+      if (release != null) {
+        release.recordReviewCompleted(eventId, sandboxSessionId, userId);
+      }
       return ReviewDisposition.COMPLETED;
     }
     return persistence.dispositionForDeniedClaim(

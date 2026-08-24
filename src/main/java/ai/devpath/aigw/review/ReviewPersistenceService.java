@@ -1,5 +1,6 @@
 package ai.devpath.aigw.review;
 
+import ai.devpath.aigw.release.ReleaseJourneyRegistry;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -149,6 +150,25 @@ public class ReviewPersistenceService {
         errorCode, claim.reviewId(), claim.processingToken());
     if (changed == 1) markSessionInboxProcessed(claim.sandboxSessionId());
     return changed == 1;
+  }
+
+  /** Staging release fault: externally visible FAILED while its Kafka delivery stays unprocessed. */
+  @Transactional
+  public boolean finishReleaseFailed(ReviewClaim claim) {
+    return jdbc.update("UPDATE ai_code_reviews SET status='FAILED', "
+            + "error_code='RELEASE_INJECTED_REVIEW', processing_token=NULL, "
+            + "lease_expires_at=NULL WHERE id=? AND status='PROCESSING' AND processing_token=?",
+        claim.reviewId(), claim.processingToken()) == 1;
+  }
+
+  /** Reopens only the exact synthetic failure so the held Kafka delivery performs the retry. */
+  @Transactional
+  public boolean reopenReleaseFailure(ReleaseJourneyRegistry.ReviewReplay replay) {
+    return jdbc.update("UPDATE ai_code_reviews SET status='PENDING', error_code=NULL, "
+            + "processing_token=NULL, lease_expires_at=NULL "
+            + "WHERE sandbox_session_id=? AND user_id=? AND source_event_id=? "
+            + "AND status='FAILED' AND error_code='RELEASE_INJECTED_REVIEW'",
+        replay.sessionId(), replay.userId(), replay.eventId()) == 1;
   }
 
   /** Legacy test/support transition: PENDING only, never an active or terminal review. */
