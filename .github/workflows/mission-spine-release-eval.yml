@@ -256,7 +256,6 @@ jobs:
           chmod 0600 "${trust_root}/ollama-proxy.key"
           install -m 0600 "${JAVA_HOME}/lib/security/cacerts" \
             "${trust_root}/mentor-eval-cacerts"
-          set +e
           keytool -importcert -noprompt \
             -alias mission-spine-ollama-loopback \
             -file "${trust_root}/ollama-proxy.crt" \

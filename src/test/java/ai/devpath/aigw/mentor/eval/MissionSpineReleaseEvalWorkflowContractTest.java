@@ -90,6 +90,7 @@ class MissionSpineReleaseEvalWorkflowContractTest {
             "continue-on-error",
             "always()",
             "keytool_import_status",
+            "set +e",
             "cp \"${JAVA_HOME}/lib/security/cacerts\"",
             "pull_request:",
             "push:");
