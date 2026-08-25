@@ -6,6 +6,7 @@ import ai.devpath.aigw.mentor.MentorInput;
 import ai.devpath.aigw.mentor.MentorPromptBuilder;
 import ai.devpath.aigw.mentor.OllamaMentorClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.errors.AnthropicServiceException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -177,8 +179,56 @@ class GoldenMentorInjectionEvalTest {
         classes.append("->");
       }
       classes.append(current.getClass().getSimpleName());
+      if (current instanceof AnthropicServiceException serviceFailure) {
+        classes.append("(status=").append(serviceFailure.statusCode())
+            .append(",type=").append(serviceFailure.errorType()
+                .map(type -> type.asString().replaceAll("[^a-z_]", ""))
+                .orElse("unknown"))
+            .append(",reason=").append(classifyAnthropicFailureBody(
+                serviceFailure.body().toString()))
+            .append(")");
+      }
       current = current.getCause();
     }
     return classes.toString();
+  }
+
+  static String classifyAnthropicFailureBody(String body) {
+    String normalized = body == null ? "" : body.toLowerCase(Locale.ROOT);
+    if (containsAny(normalized, "credit balance", "billing", "payment", "spend limit")) {
+      return "billing";
+    }
+    if (normalized.contains("model")
+        && containsAny(normalized, "not found", "does not exist", "invalid", "access")) {
+      return "model";
+    }
+    if (normalized.contains("max_tokens")) {
+      return "max_tokens";
+    }
+    if (normalized.contains("messages")) {
+      return "messages";
+    }
+    if (normalized.contains("system")) {
+      return "system";
+    }
+    if (normalized.contains("content")) {
+      return "content";
+    }
+    if (containsAny(normalized, "api key", "credential")) {
+      return "credential";
+    }
+    if (containsAny(normalized, "organization", "workspace", "account")) {
+      return "account";
+    }
+    return "unclassified";
+  }
+
+  private static boolean containsAny(String value, String... candidates) {
+    for (String candidate : candidates) {
+      if (value.contains(candidate)) {
+        return true;
+      }
+    }
+    return false;
   }
 }
