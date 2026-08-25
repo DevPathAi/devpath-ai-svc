@@ -270,19 +270,28 @@ jobs:
             --private-key "${trust_root}/ollama-proxy.key" \
             >"${trust_root}/ollama-proxy.log" 2>&1 &
           echo "$!" >"${trust_root}/ollama-proxy.pid"
+          tls_ready=false
           for _ in $(seq 1 30); do
             if curl --fail --silent --show-error \
                 --cacert "${trust_root}/ollama-proxy.crt" \
                 https://127.0.0.1:11435/api/tags \
                 >"${trust_root}/ollama-tls-tags.json"; then
-              break
+              actual_tls_model_digest="$(jq -er --arg model "${OLLAMA_MODEL}" '
+                [.models[] | select(.name == $model)]
+                | if length == 1 then .[0].digest else error("model identity drifted") end
+              ' "${trust_root}/ollama-tls-tags.json")" || actual_tls_model_digest=''
+              if [[ "${actual_tls_model_digest}" = "${EXPECTED_OLLAMA_MODEL_DIGEST}" ]]; then
+                tls_ready=true
+                break
+              fi
+            fi
+            if ! kill -0 "$(cat "${trust_root}/ollama-proxy.pid")" 2>/dev/null; then
+              echo 'Ollama TLS proxy exited before semantic readiness' >&2
+              exit 1
             fi
             sleep 1
           done
-          test "$(jq -er --arg model "${OLLAMA_MODEL}" '
-            [.models[] | select(.name == $model)]
-            | if length == 1 then .[0].digest else error("model identity drifted") end
-          ' "${trust_root}/ollama-tls-tags.json")" = "${EXPECTED_OLLAMA_MODEL_DIGEST}"
+          test "${tls_ready}" = true
 
       - name: Run live ET9 evaluation and create sanitized evidence
         shell: bash
