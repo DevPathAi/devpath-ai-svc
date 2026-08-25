@@ -38,7 +38,7 @@ function candidateBytes(overrides = {}) {
     gitops: {
       repository: 'DevPathAi/devpath-gitops',
       base_sha: gitopsSha,
-      base_web_tag: '34567890abcdef1234567890abcdef1234567890',
+      base_web_tag: '34567890abcdef1234567890abcdef1234567890-mission-on',
       base_web_digest: `sha256:${'1'.repeat(64)}`,
       web_kustomization: 'apps/devpath-web/base/kustomization.yaml',
     },
@@ -400,6 +400,35 @@ test('candidate artifact binds API-current attempt, exact ZIP, source and workfl
     () => selectUniqueCandidateMatch([selected, { ...selected, runId: 602 }]),
     /exactly one eligible/i,
   );
+
+  for (const invalidTag of [
+    '34567890abcdef1234567890abcdef1234567890-mission-invalid',
+    '34567890ABCDEF1234567890abcdef1234567890-mission-on',
+    `${'0'.repeat(40)}-mission-off`,
+  ]) {
+    const invalidRaw = candidateBytes({
+      gitops: {
+        repository: 'DevPathAi/devpath-gitops',
+        base_sha: gitopsSha,
+        base_web_tag: invalidTag,
+        base_web_digest: `sha256:${'1'.repeat(64)}`,
+        web_kustomization: 'apps/devpath-web/base/kustomization.yaml',
+      },
+    });
+    const invalidZip = storedZip([['candidate-spec.json', invalidRaw]]);
+    const invalidArtifact = {
+      ...artifact,
+      size_in_bytes: invalidZip.length,
+      digest: `sha256:${sha256(invalidZip)}`,
+    };
+    assert.throws(() => validateCandidateArtifactFacts({
+      ...common,
+      candidateSpecSha256: sha256(invalidRaw),
+      run,
+      artifact: invalidArtifact,
+      zipBytes: invalidZip,
+    }), /base_web_tag/i);
+  }
 
   const sourceFacts = {
     expectedReleaseId: releaseId,
