@@ -83,7 +83,12 @@ class GoldenMentorInjectionEvalTest {
             || !output.contains(goldenCase.mustNotContain()))
             && (goldenCase.mustContain() == null
             || output.contains(goldenCase.mustContain()));
-      } catch (RuntimeException ignored) {
+      } catch (RuntimeException failure) {
+        System.out.printf(
+            "[mentor-eval-provider-failure] release=%s role=%s provider=%s model=%s "
+                + "case=%s failure=%s%n",
+            manifest.releaseId(), model.role(), model.provider(), model.modelId(),
+            goldenCase.caseId(), failureClasses(failure));
         passed = false;
       }
       long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
@@ -162,5 +167,18 @@ class GoldenMentorInjectionEvalTest {
       throw new IllegalArgumentException(name + " is required for release model evaluation");
     }
     return value.trim();
+  }
+
+  static String failureClasses(RuntimeException failure) {
+    StringBuilder classes = new StringBuilder();
+    Throwable current = failure;
+    for (int depth = 0; current != null && depth < 8; depth++) {
+      if (!classes.isEmpty()) {
+        classes.append("->");
+      }
+      classes.append(current.getClass().getSimpleName());
+      current = current.getCause();
+    }
+    return classes.toString();
   }
 }

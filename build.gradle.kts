@@ -83,6 +83,7 @@ tasks.withType<Test> {
 	if (groups == "eval") {
 		outputs.upToDateWhen { false }
 		outputs.cacheIf("live release eval evidence cannot be reused") { false }
+		testLogging.showStandardStreams = true
 	}
 }
 
