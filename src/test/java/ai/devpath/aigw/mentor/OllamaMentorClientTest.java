@@ -56,6 +56,9 @@ class OllamaMentorClientTest {
     assertThat(request).isNotNull();
     assertThat(request.getHeader("Content-Length")).isNotBlank();
     assertThat(request.getHeader("Transfer-Encoding")).isNull();
+    assertThat(request.getBody().readUtf8())
+        .contains("\"temperature\":0", "\"num_predict\":256")
+        .doesNotContain("\"temperature\":0.4");
   }
 
   @Test

@@ -46,7 +46,7 @@ public class OllamaMentorClient implements AiMentorClient {
         Map.of("role", "system", "content", prompts.systemPrompt()),
         Map.of("role", "user", "content", prompts.userContent(input))));
     body.put("stream", true);
-    body.put("options", Map.of("temperature", 0.4));
+    body.put("options", Map.of("temperature", 0, "num_predict", 256));
     byte[] payload = jsonMapper.writeValueAsBytes(body);
 
     restClient.post()
