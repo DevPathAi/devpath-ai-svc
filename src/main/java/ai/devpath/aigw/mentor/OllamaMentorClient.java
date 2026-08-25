@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
@@ -46,8 +47,13 @@ public class OllamaMentorClient implements AiMentorClient {
         Map.of("role", "user", "content", prompts.userContent(input))));
     body.put("stream", true);
     body.put("options", Map.of("temperature", 0.4));
+    byte[] payload = jsonMapper.writeValueAsBytes(body);
 
-    restClient.post().uri("/api/chat").body(body).exchange((req, res) -> {
+    restClient.post()
+        .uri("/api/chat")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(payload)
+        .exchange((req, res) -> {
       if (!res.getStatusCode().is2xxSuccessful()) {
         throw new IllegalStateException("mentor provider returned non-success status");
       }

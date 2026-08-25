@@ -43,6 +43,22 @@ class OllamaMentorClientTest {
   }
 
   @Test
+  void sendsLengthDelimitedJsonAcceptedByTheReleaseTlsProxy() throws Exception {
+    server.enqueue(new MockResponse()
+        .setHeader("Content-Type", "application/x-ndjson")
+        .setBody("{\"message\":{\"content\":\"ok\"},\"done\":true}\n"));
+    var client = new OllamaMentorClient(server.url("/").toString(), "qwen2.5:3b",
+        Duration.ofSeconds(1), new MentorPromptBuilder(), JsonMapper.builder().build());
+
+    client.stream(new MentorInput("q", ""), ignored -> {});
+
+    var request = server.takeRequest(1, TimeUnit.SECONDS);
+    assertThat(request).isNotNull();
+    assertThat(request.getHeader("Content-Length")).isNotBlank();
+    assertThat(request.getHeader("Transfer-Encoding")).isNull();
+  }
+
+  @Test
   void transportStopsAtProviderDeadlineBeforeTheRequestDeadline() {
     MentorTimeoutPolicy policy = new MentorTimeoutPolicy(
         Duration.ofMillis(150), Duration.ofSeconds(1), Duration.ofSeconds(2));
