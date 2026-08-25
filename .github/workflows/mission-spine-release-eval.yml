@@ -256,11 +256,26 @@ jobs:
           chmod 0600 "${trust_root}/ollama-proxy.key"
           cp "${JAVA_HOME}/lib/security/cacerts" \
             "${trust_root}/mentor-eval-cacerts"
+          set +e
           keytool -importcert -noprompt \
             -alias mission-spine-ollama-loopback \
             -file "${trust_root}/ollama-proxy.crt" \
             -keystore "${trust_root}/mentor-eval-cacerts" \
             -storepass changeit >/dev/null
+          keytool_import_status=$?
+          set -e
+          if [[ "${keytool_import_status}" -ne 0 ]]; then
+            echo 'keytool import returned non-zero; verifying exact truststore state' >&2
+          fi
+          source_certificate_sha256="$(openssl x509 \
+            -in "${trust_root}/ollama-proxy.crt" -outform DER \
+            | sha256sum | awk '{print $1}')"
+          truststore_certificate_sha256="$(keytool -exportcert \
+            -alias mission-spine-ollama-loopback \
+            -keystore "${trust_root}/mentor-eval-cacerts" \
+            -storepass changeit \
+            | sha256sum | awk '{print $1}')"
+          test "${truststore_certificate_sha256}" = "${source_certificate_sha256}"
           RUNNER_TRACKING_ID= nohup python3 tools/ollama_tls_proxy.py \
             --host 127.0.0.1 \
             --port 11435 \
