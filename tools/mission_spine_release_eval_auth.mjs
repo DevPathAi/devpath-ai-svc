@@ -47,6 +47,16 @@ function gitSha(value, name) {
   return value;
 }
 
+function webBaseTag(value, name) {
+  const match = typeof value === 'string'
+    ? /^([0-9a-f]{40})(?:-mission-(?:off|on))?$/.exec(value)
+    : null;
+  if (match === null || /^0{40}$/.test(match[1])) {
+    fail(`${name} must be a nonzero lowercase Git SHA with an optional mission phase`);
+  }
+  return value;
+}
+
 function utc(value, name) {
   if (
     typeof value !== 'string' ||
@@ -271,7 +281,7 @@ function candidateContract(bytes, expectedReleaseId, candidateSpecSha256) {
   exactKeys(value.gitops, GITOPS_KEYS, 'candidate gitops');
   exact(value.gitops.repository, gitopsRepository, 'candidate gitops.repository');
   gitSha(value.gitops.base_sha, 'candidate gitops.base_sha');
-  gitSha(value.gitops.base_web_tag, 'candidate gitops.base_web_tag');
+  webBaseTag(value.gitops.base_web_tag, 'candidate gitops.base_web_tag');
   if (!/^sha256:[0-9a-f]{64}$/.test(value.gitops.base_web_digest ?? '')) {
     fail('candidate gitops.base_web_digest is invalid');
   }
