@@ -254,19 +254,13 @@ jobs:
             -addext 'keyUsage=critical,digitalSignature,keyEncipherment' \
             -addext 'extendedKeyUsage=serverAuth' >/dev/null 2>&1
           chmod 0600 "${trust_root}/ollama-proxy.key"
-          cp "${JAVA_HOME}/lib/security/cacerts" \
+          install -m 0600 "${JAVA_HOME}/lib/security/cacerts" \
             "${trust_root}/mentor-eval-cacerts"
-          set +e
           keytool -importcert -noprompt \
             -alias mission-spine-ollama-loopback \
             -file "${trust_root}/ollama-proxy.crt" \
             -keystore "${trust_root}/mentor-eval-cacerts" \
             -storepass changeit >/dev/null
-          keytool_import_status=$?
-          set -e
-          if [[ "${keytool_import_status}" -ne 0 ]]; then
-            echo 'keytool import returned non-zero; verifying exact truststore state' >&2
-          fi
           source_certificate_sha256="$(openssl x509 \
             -in "${trust_root}/ollama-proxy.crt" -outform DER \
             | sha256sum | awk '{print $1}')"

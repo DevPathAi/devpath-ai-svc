@@ -74,8 +74,8 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .contains("actual_tls_model_digest=\"$(jq -er --arg model")
         .contains("test \"${tls_ready}\" = true")
         .contains("kill -0 \"$(cat \"${trust_root}/ollama-proxy.pid\")\"")
+        .contains("install -m 0600 \"${JAVA_HOME}/lib/security/cacerts\"")
         .contains("keytool -importcert")
-        .contains("keytool_import_status=$?")
         .contains("source_certificate_sha256=\"$(openssl x509")
         .contains("truststore_certificate_sha256=\"$(keytool -exportcert")
         .contains("test \"${truststore_certificate_sha256}\" = \"${source_certificate_sha256}\"")
@@ -89,6 +89,8 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .doesNotContain(
             "continue-on-error",
             "always()",
+            "keytool_import_status",
+            "cp \"${JAVA_HOME}/lib/security/cacerts\"",
             "pull_request:",
             "push:");
 
@@ -123,7 +125,9 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .isLessThan(text.indexOf("GoldenMentorInjectionEvalTest"));
     assertThat(text.indexOf("actual_tls_model_digest=\"$(jq -er --arg model"))
         .isLessThan(text.indexOf("test \"${tls_ready}\" = true"));
-    assertThat(text.indexOf("keytool_import_status=$?"))
+    assertThat(text.indexOf("install -m 0600 \"${JAVA_HOME}/lib/security/cacerts\""))
+        .isLessThan(text.indexOf("keytool -importcert"));
+    assertThat(text.indexOf("keytool -importcert"))
         .isLessThan(text.indexOf("truststore_certificate_sha256=\"$(keytool -exportcert"));
     assertThat(text.indexOf("truststore_certificate_sha256=\"$(keytool -exportcert"))
         .isLessThan(text.indexOf("python3 tools/ollama_tls_proxy.py"));
