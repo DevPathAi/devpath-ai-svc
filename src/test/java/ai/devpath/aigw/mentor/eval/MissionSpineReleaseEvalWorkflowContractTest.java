@@ -70,6 +70,10 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .contains("EXPECTED_OLLAMA_MODEL_DIGEST: 357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b")
         .contains("python3 tools/ollama_tls_proxy.py")
         .contains("--host 127.0.0.1", "--port 11435")
+        .contains("tls_ready=false")
+        .contains("actual_tls_model_digest=\"$(jq -er --arg model")
+        .contains("test \"${tls_ready}\" = true")
+        .contains("kill -0 \"$(cat \"${trust_root}/ollama-proxy.pid\")\"")
         .contains("keytool -importcert")
         .contains("-Djavax.net.ssl.trustStore=${{ runner.temp }}/mission-spine-release-eval/mentor-eval-cacerts")
         .contains("validateMissionSpineReleaseEvalCandidate")
@@ -113,6 +117,8 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .isLessThan(text.indexOf("validateMissionSpineReleaseEvalCandidate"));
     assertThat(text.indexOf("validateMissionSpineReleaseEvalCandidate"))
         .isLessThan(text.indexOf("GoldenMentorInjectionEvalTest"));
+    assertThat(text.indexOf("actual_tls_model_digest=\"$(jq -er --arg model"))
+        .isLessThan(text.indexOf("test \"${tls_ready}\" = true"));
   }
 
   @Test
