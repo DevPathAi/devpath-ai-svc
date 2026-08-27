@@ -26,7 +26,7 @@ class ReviewServiceReleaseFaultTest {
     AiReviewClient provider = mock(AiReviewClient.class);
     ReleaseJourneyRegistry release = new ReleaseJourneyRegistry(
         true, JsonMapper.builder().build());
-    release.arm(candidate, runKey, 42L, "fail-next-review");
+    release.arm(candidate, runKey, 42L, "fail-next-review", 80L);
     ReviewService service = new ReviewService(
         persistence, sandbox, provider, Duration.ofMinutes(5), release);
 

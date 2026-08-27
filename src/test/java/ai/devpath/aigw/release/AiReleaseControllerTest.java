@@ -1,6 +1,7 @@
 package ai.devpath.aigw.release;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,9 +24,11 @@ class AiReleaseControllerTest {
         UUID.randomUUID(), 81L, 42L, 7L);
 
     assertThat(controller.command(
-        candidate, runKey, "fail-next-review", Map.of("user_id", 42L)))
+        candidate, runKey, "fail-next-review", Map.of(
+            "user_id", 42L,
+            "prior_sandbox_session_id", 80L)))
         .containsEntry("accepted", true);
-    verify(registry).arm(candidate, runKey, 42L, "fail-next-review");
+    verify(registry).arm(candidate, runKey, 42L, "fail-next-review", 80L);
 
     when(registry.clear(candidate, runKey, 42L)).thenReturn(Optional.of(replay));
     when(persistence.reopenReleaseFailure(replay)).thenReturn(true);
@@ -34,5 +37,23 @@ class AiReleaseControllerTest {
         .containsEntry("accepted", true);
     verify(persistence).reopenReleaseFailure(replay);
     verify(registry).recordReviewReleased(replay);
+  }
+
+  @Test
+  void rejectsReviewFaultWithoutAPositivePriorSession() {
+    ReleaseJourneyRegistry registry = mock(ReleaseJourneyRegistry.class);
+    AiReleaseController controller = new AiReleaseController(
+        registry, mock(ReviewPersistenceService.class));
+
+    assertThatThrownBy(() -> controller.command(
+        "a".repeat(64), "R".repeat(43), "fail-next-review", Map.of("user_id", 42L)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("prior sandbox session");
+    assertThatThrownBy(() -> controller.command(
+        "a".repeat(64), "R".repeat(43), "fail-next-review", Map.of(
+            "user_id", 42L,
+            "prior_sandbox_session_id", 0L)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("prior sandbox session");
   }
 }
