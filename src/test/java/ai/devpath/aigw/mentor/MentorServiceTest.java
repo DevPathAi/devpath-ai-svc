@@ -203,7 +203,7 @@ class MentorServiceTest {
       return null;
     }).when(mentorClient).stream(any(), any(), any());
     ReleaseJourneyRegistry release = new ReleaseJourneyRegistry(true, mapper);
-    release.arm(candidate, runKey, 42L, "fail-next-mentor");
+    release.arm(candidate, runKey, 42L, "fail-next-mentor", null);
     MentorService service = new MentorService(
         contextAssembler, referenceService, knowledgeService, mentorClient, mapper, release);
 

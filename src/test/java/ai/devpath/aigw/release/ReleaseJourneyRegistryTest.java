@@ -16,12 +16,13 @@ class ReleaseJourneyRegistryTest {
   private static final String RUN = "R".repeat(43);
 
   @Test
-  void reviewFaultIsBoundToOneUserAndHeldUntilExactClear() {
+  void reviewFaultSkipsTheBoundPriorSessionAndHoldsTheNextSessionUntilExactClear() {
     ReleaseJourneyRegistry registry = new ReleaseJourneyRegistry(true,
         JsonMapper.builder().build());
     UUID eventId = UUID.randomUUID();
 
-    registry.arm(CANDIDATE, RUN, 42L, "fail-next-review");
+    registry.arm(CANDIDATE, RUN, 42L, "fail-next-review", 80L);
+    assertThat(registry.consumeReview(42L, UUID.randomUUID(), 80L, 7L)).isEmpty();
     var fault = registry.consumeReview(42L, eventId, 81L, 7L).orElseThrow();
     registry.recordReviewFailure(fault);
 
@@ -48,7 +49,7 @@ class ReleaseJourneyRegistryTest {
         List.of(new KnowledgeChunk("source", "title", "category", "text", 0.8)));
     List<String> delivered = new ArrayList<>();
 
-    registry.arm(CANDIDATE, RUN, 42L, "fail-next-mentor");
+    registry.arm(CANDIDATE, RUN, 42L, "fail-next-mentor", null);
     var first = registry.mentorAttempt(CANDIDATE, RUN, 42L, true);
     registry.recordMentorPayload(first, input);
     assertThatThrownBy(() -> registry.deliverMentorToken(first, delivered::add, "partial"))
@@ -78,7 +79,8 @@ class ReleaseJourneyRegistryTest {
   void disabledOrUnboundTrafficCannotConsumeFaults() {
     ReleaseJourneyRegistry disabled = new ReleaseJourneyRegistry(false,
         JsonMapper.builder().build());
-    assertThatThrownBy(() -> disabled.arm(CANDIDATE, RUN, 42L, "fail-next-review"))
+    assertThatThrownBy(() -> disabled.arm(
+        CANDIDATE, RUN, 42L, "fail-next-review", 80L))
         .isInstanceOf(IllegalStateException.class);
     assertThat(disabled.consumeReview(42L, UUID.randomUUID(), 1L, null)).isEmpty();
     assertThat(disabled.mentorAttempt(CANDIDATE, RUN, 42L, true).tracked()).isFalse();
