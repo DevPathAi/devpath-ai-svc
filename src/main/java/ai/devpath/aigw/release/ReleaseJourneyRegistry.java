@@ -34,21 +34,37 @@ public class ReleaseJourneyRegistry {
     this.jsonMapper = jsonMapper;
   }
 
-  public void arm(String candidate, String runKey, long userId, String command) {
+  public void arm(
+      String candidate,
+      String runKey,
+      long userId,
+      String command,
+      Long priorSandboxSessionId) {
     requireEnabled();
     if (userId <= 0) throw new IllegalArgumentException("release fixture user id is invalid");
     Observation observation = state(requireKey(candidate, runKey));
     synchronized (observation) {
       bindOwner(observation, userId);
       switch (command) {
-        case "fail-next-review" -> observation.reviewArmed = true;
-        case "fail-next-mentor" -> observation.mentorArmed = true;
+        case "fail-next-review" -> {
+          if (priorSandboxSessionId == null || priorSandboxSessionId <= 0) {
+            throw new IllegalArgumentException("prior sandbox session id is invalid");
+          }
+          observation.reviewPriorSessionId = priorSandboxSessionId;
+          observation.reviewArmed = true;
+        }
+        case "fail-next-mentor" -> {
+          if (priorSandboxSessionId != null) {
+            throw new IllegalArgumentException("mentor release fault cannot bind a sandbox session");
+          }
+          observation.mentorArmed = true;
+        }
         default -> throw new IllegalArgumentException("unsupported AI release fault");
       }
     }
   }
 
-  /** Kafka payloads do not carry browser headers, so exactly one owner-bound armed run may match. */
+  /** Kafka payloads lack browser headers, so the unique fixture owner skips its bound prior session. */
   public Optional<ReviewFault> consumeReview(
       long userId, UUID eventId, long sessionId, Long contentId) {
     if (!enabled || userId <= 0 || eventId == null || sessionId <= 0) return Optional.empty();
@@ -67,7 +83,12 @@ public class ReleaseJourneyRegistry {
     Observation observation = entry.getValue();
     synchronized (observation) {
       if (!observation.reviewArmed || observation.userId != userId) return Optional.empty();
+      if (observation.reviewPriorSessionId != null
+          && observation.reviewPriorSessionId == sessionId) {
+        return Optional.empty();
+      }
       observation.reviewArmed = false;
+      observation.reviewPriorSessionId = null;
       ReviewReplay replay = new ReviewReplay(eventId, sessionId, userId, contentId);
       observation.reviewReplay = replay;
       return Optional.of(new ReviewFault(entry.getKey(), replay));
@@ -125,6 +146,7 @@ public class ReleaseJourneyRegistry {
     synchronized (observation) {
       requireOwner(observation, userId);
       observation.reviewArmed = false;
+      observation.reviewPriorSessionId = null;
       observation.mentorArmed = false;
       if (observation.reviewInjected
           && !observation.reviewReleased
@@ -321,6 +343,7 @@ public class ReleaseJourneyRegistry {
   private static final class Observation {
     private long userId;
     private boolean reviewArmed;
+    private Long reviewPriorSessionId;
     private ReviewReplay reviewReplay;
     private boolean reviewInjected;
     private boolean reviewReleased;
