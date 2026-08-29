@@ -36,6 +36,7 @@ concurrency:
 
 jobs:
   release-eval:
+    if: github.ref == 'refs/heads/main'
     name: Run AI release evaluation
     environment: mission-spine-ai-release-eval
     runs-on: ubuntu-24.04
@@ -358,3 +359,122 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           overwrite: false
+
+  dispatch-release-eval:
+    if: github.ref == 'refs/heads/chore/prod26r6-ai-eval-dispatch'
+    name: Dispatch exact AI release evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    env:
+      RELEASE_ID: ms-20260829-prod26r6
+      CANDIDATE_SPEC_SHA256: 2661d7089ebb5d2e85d53955126fab4a1f1f6926f887a89e90085c83e773bf47
+      AI_SOURCE_SHA: 86288e1522a394d8d55bd162ca05c3bcc806cca7
+      GITOPS_SOURCE_SHA: eca2a73378eff8a9ce310f7ef997b51b7910984f
+      INPUT_RELEASE_ID: ${{ inputs.release_id }}
+      INPUT_CANDIDATE_SPEC_SHA256: ${{ inputs.candidate_spec_sha256 }}
+      INPUT_AI_SOURCE_SHA: ${{ inputs.ai_source_sha }}
+      INPUT_GITOPS_SOURCE_SHA: ${{ inputs.gitops_source_sha }}
+      GITHUB_API_VERSION: "2026-03-10"
+    steps:
+      - name: Prove the exact one-shot dispatcher context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r6-ai-eval-dispatch"
+          test "$INPUT_RELEASE_ID" = "$RELEASE_ID"
+          test "$INPUT_CANDIDATE_SPEC_SHA256" = "$CANDIDATE_SPEC_SHA256"
+          test "$INPUT_AI_SOURCE_SHA" = "$AI_SOURCE_SHA"
+          test "$INPUT_GITOPS_SOURCE_SHA" = "$GITOPS_SOURCE_SHA"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Dispatch protected main through the repository Actions App
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_main="$(
+            gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha'
+          )"
+          test "$current_main" = "$AI_SOURCE_SHA"
+
+          payload="$RUNNER_TEMP/prod26r6-ai-eval-dispatch.json"
+          response="$RUNNER_TEMP/prod26r6-ai-eval-dispatch-response.json"
+          run_document="$RUNNER_TEMP/prod26r6-ai-eval-run.json"
+          test ! -e "$payload"
+          test ! -e "$response"
+          test ! -e "$run_document"
+          umask 077
+          jq -n \
+            --arg release_id "$RELEASE_ID" \
+            --arg candidate_spec_sha256 "$CANDIDATE_SPEC_SHA256" \
+            --arg ai_source_sha "$AI_SOURCE_SHA" \
+            --arg gitops_source_sha "$GITOPS_SOURCE_SHA" \
+            '{
+              "ref": "main",
+              "inputs": {
+                "release_id": $release_id,
+                "candidate_spec_sha256": $candidate_spec_sha256,
+                "ai_source_sha": $ai_source_sha,
+                "gitops_source_sha": $gitops_source_sha
+              }
+            }' >"$payload"
+
+          gh api --method POST \
+            -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+            --input "$payload" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/mission-spine-release-eval.yml/dispatches" \
+            >"$response"
+          inner_run_id="$(jq -er '.workflow_run_id | select(type == "number" and . > 0)' "$response")"
+          [[ "$inner_run_id" =~ ^[1-9][0-9]*$ ]]
+
+          cancel_inner() {
+            gh api --method POST \
+              -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id/cancel" \
+              >/dev/null 2>&1 || true
+          }
+          trap 'status=$?; if test "$status" -ne 0; then cancel_inner; fi; exit "$status"' EXIT
+
+          for attempt in $(seq 1 12); do
+            if gh api -H "X-GitHub-Api-Version: $GITHUB_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$inner_run_id" \
+              >"$run_document"; then
+              break
+            fi
+            test "$attempt" -lt 12
+            sleep 1
+          done
+
+          inner_actor="$(jq -er '.actor.login' "$run_document")"
+          inner_triggering_actor="$(jq -er '.triggering_actor.login' "$run_document")"
+          test "$inner_actor" = "github-actions[bot]"
+          test "$(jq -er '.actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.actor.type' "$run_document")" = "Bot"
+          test "$inner_triggering_actor" = "github-actions[bot]"
+          test "$(jq -er '.triggering_actor.id' "$run_document")" = "41898282"
+          test "$(jq -er '.triggering_actor.type' "$run_document")" = "Bot"
+          test "$(jq -er '.event' "$run_document")" = "workflow_dispatch"
+          test "$(jq -er '.head_branch' "$run_document")" = "main"
+          test "$(jq -er '.head_sha' "$run_document")" = "$AI_SOURCE_SHA"
+          test "$(jq -er '.run_attempt' "$run_document")" = "1"
+          test "$(jq -er '.path' "$run_document")" = ".github/workflows/mission-spine-release-eval.yml"
+          test "$(jq -r '.conclusion' "$run_document")" = "null"
+          trap - EXIT
+
+          {
+            echo "### Independent AI release evaluation dispatch"
+            echo "- inner run: $inner_run_id"
+            echo "- actor: $inner_actor"
+            echo "- triggering actor: $inner_triggering_actor"
+            echo "- AI source SHA: $AI_SOURCE_SHA"
+            echo "- GitOps source SHA: $GITOPS_SOURCE_SHA"
+            echo "- candidate SHA-256: $CANDIDATE_SPEC_SHA256"
+          } >>"$GITHUB_STEP_SUMMARY"

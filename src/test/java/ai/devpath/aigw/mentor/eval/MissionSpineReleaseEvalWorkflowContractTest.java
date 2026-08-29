@@ -38,11 +38,19 @@ class MissionSpineReleaseEvalWorkflowContractTest {
     }
 
     Map<String, Object> jobs = (Map<String, Object>) workflow.get("jobs");
-    assertThat(jobs.keySet()).containsExactly("release-eval");
+    assertThat(jobs.keySet()).containsExactly("release-eval", "dispatch-release-eval");
     Map<String, Object> job = (Map<String, Object>) jobs.get("release-eval");
     assertThat(job)
+        .containsEntry("if", "github.ref == 'refs/heads/main'")
         .containsEntry("name", "Run AI release evaluation")
         .containsEntry("environment", "mission-spine-ai-release-eval")
+        .containsEntry("runs-on", "ubuntu-24.04");
+    Map<String, Object> dispatcher =
+        (Map<String, Object>) jobs.get("dispatch-release-eval");
+    assertThat(dispatcher)
+        .containsEntry(
+            "if", "github.ref == 'refs/heads/chore/prod26r6-ai-eval-dispatch'")
+        .containsEntry("name", "Dispatch exact AI release evaluation")
         .containsEntry("runs-on", "ubuntu-24.04");
 
     assertThat(text)

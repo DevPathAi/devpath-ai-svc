@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -23,6 +24,38 @@ const candidateWorkflowBytes = Buffer.from(
   'name: Candidate\non:\n  workflow_dispatch:\n    inputs:\n' +
   '      release_id:\n        required: true\n        type: string\npermissions:\n  contents: read\n',
 );
+
+test('prod26r6 dispatcher starts the protected main evaluation as the Actions App', () => {
+  const workflow = readFileSync(
+    new URL('../.github/workflows/mission-spine-release-eval.yml', import.meta.url),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+  assert.match(
+    workflow,
+    /release-eval:\n\s+if: github\.ref == 'refs\/heads\/main'/,
+  );
+  assert.match(
+    workflow,
+    /dispatch-release-eval:\n\s+if: github\.ref == 'refs\/heads\/chore\/prod26r6-ai-eval-dispatch'/,
+  );
+  assert.match(workflow, /actions: write/);
+  assert.match(workflow, /RELEASE_ID: ms-20260829-prod26r6/);
+  assert.match(
+    workflow,
+    /CANDIDATE_SPEC_SHA256: 2661d7089ebb5d2e85d53955126fab4a1f1f6926f887a89e90085c83e773bf47/,
+  );
+  assert.match(
+    workflow,
+    /AI_SOURCE_SHA: 86288e1522a394d8d55bd162ca05c3bcc806cca7/,
+  );
+  assert.match(
+    workflow,
+    /GITOPS_SOURCE_SHA: eca2a73378eff8a9ce310f7ef997b51b7910984f/,
+  );
+  assert.match(workflow, /test "\$inner_actor" = "github-actions\[bot\]"/);
+  assert.match(workflow, /test "\$inner_triggering_actor" = "github-actions\[bot\]"/);
+  assert.match(workflow, /test "\$\(jq -er '\.actor\.id' "\$run_document"\)" = "41898282"/);
+});
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
