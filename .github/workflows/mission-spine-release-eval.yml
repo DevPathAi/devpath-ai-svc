@@ -361,7 +361,7 @@ jobs:
           overwrite: false
 
   dispatch-release-eval:
-    if: github.ref == 'refs/heads/chore/prod26r7-ai-eval-dispatch'
+    if: github.ref == 'refs/heads/chore/prod26r8-ai-eval-dispatch'
     name: Dispatch exact AI release evaluation
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -369,10 +369,10 @@ jobs:
       actions: write
       contents: read
     env:
-      RELEASE_ID: ms-20260829-prod26r7
-      CANDIDATE_SPEC_SHA256: 876787696ed20ad1867b451a323fa213e1c413c16a5b1e2336bf61028fec9b3c
+      RELEASE_ID: ms-20260829-prod26r8
+      CANDIDATE_SPEC_SHA256: a0ad5fd087db806c56fe41f195b7722cd97a821b71c6178f2959a12679d0614f
       AI_SOURCE_SHA: 86288e1522a394d8d55bd162ca05c3bcc806cca7
-      GITOPS_SOURCE_SHA: eca2a73378eff8a9ce310f7ef997b51b7910984f
+      GITOPS_SOURCE_SHA: df94fba536fd6e1740333d6d6e79e11349b9e2b7
       INPUT_RELEASE_ID: ${{ inputs.release_id }}
       INPUT_CANDIDATE_SPEC_SHA256: ${{ inputs.candidate_spec_sha256 }}
       INPUT_AI_SOURCE_SHA: ${{ inputs.ai_source_sha }}
@@ -386,7 +386,7 @@ jobs:
           test "$GITHUB_ACTOR" = "VelkaressiaBlutkrone"
           test "$GITHUB_TRIGGERING_ACTOR" = "VelkaressiaBlutkrone"
           test "$GITHUB_RUN_ATTEMPT" = "1"
-          test "$GITHUB_REF" = "refs/heads/chore/prod26r7-ai-eval-dispatch"
+          test "$GITHUB_REF" = "refs/heads/chore/prod26r8-ai-eval-dispatch"
           test "$INPUT_RELEASE_ID" = "$RELEASE_ID"
           test "$INPUT_CANDIDATE_SPEC_SHA256" = "$CANDIDATE_SPEC_SHA256"
           test "$INPUT_AI_SOURCE_SHA" = "$AI_SOURCE_SHA"
@@ -405,9 +405,9 @@ jobs:
           )"
           test "$current_main" = "$AI_SOURCE_SHA"
 
-          payload="$RUNNER_TEMP/prod26r7-ai-eval-dispatch.json"
-          response="$RUNNER_TEMP/prod26r7-ai-eval-dispatch-response.json"
-          run_document="$RUNNER_TEMP/prod26r7-ai-eval-run.json"
+          payload="$RUNNER_TEMP/prod26r8-ai-eval-dispatch.json"
+          response="$RUNNER_TEMP/prod26r8-ai-eval-dispatch-response.json"
+          run_document="$RUNNER_TEMP/prod26r8-ai-eval-run.json"
           test ! -e "$payload"
           test ! -e "$response"
           test ! -e "$run_document"

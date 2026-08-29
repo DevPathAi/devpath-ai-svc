@@ -49,7 +49,7 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         (Map<String, Object>) jobs.get("dispatch-release-eval");
     assertThat(dispatcher)
         .containsEntry(
-            "if", "github.ref == 'refs/heads/chore/prod26r7-ai-eval-dispatch'")
+            "if", "github.ref == 'refs/heads/chore/prod26r8-ai-eval-dispatch'")
         .containsEntry("name", "Dispatch exact AI release evaluation")
         .containsEntry("runs-on", "ubuntu-24.04");
 
