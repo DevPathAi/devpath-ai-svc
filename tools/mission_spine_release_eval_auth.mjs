@@ -23,6 +23,11 @@ const releaseIdPattern = /^ms-[0-9]{8}-[a-z0-9][a-z0-9-]{2,40}$/;
 const sha64Pattern = /^(?!0{64}$)[0-9a-f]{64}$/;
 const teamSlug = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
 const reviewerLogin = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+const githubActionsAutomationIdentity = Object.freeze({
+  id: 41898282,
+  login: 'github-actions[bot]',
+  type: 'Bot',
+});
 
 function fail(message) {
   throw new Error(`Mission Spine release evaluation authorization failed: ${message}`);
@@ -595,9 +600,14 @@ export function validateReleaseEvalAuthorizationFacts(facts) {
   const approvedById = positiveInteger(approval.user.id, 'approved reviewer id');
   const initiators = [facts.run?.actor, facts.run?.triggering_actor];
   for (const [index, initiator] of initiators.entries()) {
-    positiveInteger(initiator?.id, `run initiator ${index} id`);
-    if (initiator?.type !== 'User' || !reviewerLogin.test(initiator?.login ?? '')) {
-      fail(`run initiator ${index} must be a human GitHub user`);
+    const id = positiveInteger(initiator?.id, `run initiator ${index} id`);
+    const human = initiator?.type === 'User' && reviewerLogin.test(initiator?.login ?? '');
+    const automation =
+      initiator?.type === githubActionsAutomationIdentity.type &&
+      id === githubActionsAutomationIdentity.id &&
+      initiator?.login === githubActionsAutomationIdentity.login;
+    if (!human && !automation) {
+      fail(`run initiator ${index} is not an exact human or GitHub Actions identity`);
     }
   }
   const configuredUser = reviewerRule.reviewers.some(

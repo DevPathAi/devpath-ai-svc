@@ -255,6 +255,32 @@ test('authorization permits the configured reviewer to initiate and approve', ()
   );
 });
 
+test('authorization accepts only the exact GitHub Actions automation initiator', () => {
+  const automated = facts();
+  automated.run.actor = {
+    id: 41898282,
+    login: 'github-actions[bot]',
+    type: 'Bot',
+  };
+  automated.run.triggering_actor = structuredClone(automated.run.actor);
+  assert.equal(
+    validateReleaseEvalAuthorizationFacts(automated).approved_by,
+    'independent-reviewer',
+  );
+
+  for (const identity of [
+    { id: 41898283, login: 'github-actions[bot]', type: 'Bot' },
+    { id: 41898282, login: 'github-actions-bot[bot]', type: 'Bot' },
+    { id: 41898282, login: 'github-actions[bot]-suffix', type: 'Bot' },
+    { id: 41898282, login: 'github-actions[bot]', type: 'User' },
+  ]) {
+    const invalid = facts();
+    invalid.run.actor = identity;
+    invalid.run.triggering_actor = structuredClone(identity);
+    assert.throws(() => validateReleaseEvalAuthorizationFacts(invalid));
+  }
+});
+
 test('authorization accepts a team reviewer only with exact active membership proof', () => {
   const value = facts({
     teamMemberships: [{
