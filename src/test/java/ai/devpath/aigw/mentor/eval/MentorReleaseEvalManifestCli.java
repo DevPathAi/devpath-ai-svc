@@ -34,7 +34,7 @@ public final class MentorReleaseEvalManifestCli {
       case "verify-evidence" -> {
         MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.read(manifestPath);
         manifest.validate(inputs);
-        manifest.validateCredentials(environment);
+        manifest.validateNoRemoteCredentials();
         MentorEvalEvidence evidence = MentorEvalEvidence.read(
             Path.of(required(environment, "MENTOR_EVAL_EVIDENCE")));
         evidence.validate(manifest, MentorReleaseEvalManifest.sha256(manifestPath),

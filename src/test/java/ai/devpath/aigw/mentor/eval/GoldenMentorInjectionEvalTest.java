@@ -1,12 +1,9 @@
 package ai.devpath.aigw.mentor.eval;
 
 import ai.devpath.aigw.mentor.AiMentorClient;
-import ai.devpath.aigw.mentor.ClaudeMentorClient;
 import ai.devpath.aigw.mentor.MentorInput;
 import ai.devpath.aigw.mentor.MentorPromptBuilder;
 import ai.devpath.aigw.mentor.OllamaMentorClient;
-import com.anthropic.client.okhttp.AnthropicOkHttpClient;
-import com.anthropic.errors.AnthropicServiceException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -15,7 +12,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,7 +35,7 @@ class GoldenMentorInjectionEvalTest {
 
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.read(manifestPath);
     manifest.validate(inputs);
-    validateCredentials(manifest, environment);
+    validateNoRemoteCredentials(manifest);
     MentorPromptBuilder prompts = inputs.prompts();
     List<MentorProviderPayloadContract.Result> payloadResults =
         MentorProviderPayloadContract.validate(inputs.cases(), prompts);
@@ -50,7 +46,7 @@ class GoldenMentorInjectionEvalTest {
 
     List<MentorEvalEvidence.ModelResult> modelResults = new ArrayList<>();
     for (MentorReleaseEvalManifest.Model model : manifest.models()) {
-      modelResults.add(evaluateModel(manifest, model, inputs.cases(), prompts, environment));
+      modelResults.add(evaluateModel(manifest, model, inputs.cases(), prompts));
     }
 
     MentorEvalEvidence evidence = MentorEvalEvidence.evaluated(
@@ -61,8 +57,8 @@ class GoldenMentorInjectionEvalTest {
 
   private MentorEvalEvidence.ModelResult evaluateModel(MentorReleaseEvalManifest manifest,
       MentorReleaseEvalManifest.Model model, List<MentorGoldenCase> cases,
-      MentorPromptBuilder prompts, Map<String, String> environment) {
-    AiMentorClient client = client(model, prompts, environment);
+      MentorPromptBuilder prompts) {
+    AiMentorClient client = client(model, prompts);
     int hardPassed = 0;
     int hardTotal = 0;
     int qualityPassed = 0;
@@ -126,35 +122,23 @@ class GoldenMentorInjectionEvalTest {
   }
 
   private AiMentorClient client(MentorReleaseEvalManifest.Model model,
-      MentorPromptBuilder prompts, Map<String, String> environment) {
+      MentorPromptBuilder prompts) {
     Duration timeout = Duration.ofSeconds(120);
     return switch (model.provider()) {
       case "ollama" -> new OllamaMentorClient(
           model.evaluationEndpoint(), model.modelId(), timeout, prompts,
           JsonMapper.builder().build());
-      case "claude" -> {
-        String credential = required(environment, model.credentialEnv());
-        yield new ClaudeMentorClient(
-            AnthropicOkHttpClient.builder()
-                .apiKey(credential)
-                .baseUrl(model.evaluationEndpoint())
-                .timeout(timeout)
-                .maxRetries(0)
-                .build(),
-            model.modelId(), prompts);
-      }
       default -> throw new IllegalArgumentException("unsupported release eval provider");
     };
   }
 
-  static void validateCredentials(MentorReleaseEvalManifest manifest,
-      Map<String, String> environment) {
-    manifest.validateCredentials(environment);
+  static void validateNoRemoteCredentials(MentorReleaseEvalManifest manifest) {
+    manifest.validateNoRemoteCredentials();
   }
 
   private static Path evidencePath(Map<String, String> environment) {
     Path path = Path.of(required(environment, "MENTOR_EVAL_EVIDENCE"));
-    if (!"mentor-release-eval-evidence-v3.json".equals(path.getFileName().toString())) {
+    if (!"mentor-release-eval-evidence-v4.json".equals(path.getFileName().toString())) {
       throw new IllegalArgumentException("release eval evidence filename is invalid");
     }
     return path;
@@ -179,56 +163,9 @@ class GoldenMentorInjectionEvalTest {
         classes.append("->");
       }
       classes.append(current.getClass().getSimpleName());
-      if (current instanceof AnthropicServiceException serviceFailure) {
-        classes.append("(status=").append(serviceFailure.statusCode())
-            .append(",type=").append(serviceFailure.errorType()
-                .map(type -> type.asString().replaceAll("[^a-z_]", ""))
-                .orElse("unknown"))
-            .append(",reason=").append(classifyAnthropicFailureBody(
-                serviceFailure.body().toString()))
-            .append(")");
-      }
       current = current.getCause();
     }
     return classes.toString();
   }
 
-  static String classifyAnthropicFailureBody(String body) {
-    String normalized = body == null ? "" : body.toLowerCase(Locale.ROOT);
-    if (containsAny(normalized, "credit balance", "billing", "payment", "spend limit")) {
-      return "billing";
-    }
-    if (normalized.contains("model")
-        && containsAny(normalized, "not found", "does not exist", "invalid", "access")) {
-      return "model";
-    }
-    if (normalized.contains("max_tokens")) {
-      return "max_tokens";
-    }
-    if (normalized.contains("messages")) {
-      return "messages";
-    }
-    if (normalized.contains("system")) {
-      return "system";
-    }
-    if (normalized.contains("content")) {
-      return "content";
-    }
-    if (containsAny(normalized, "api key", "credential")) {
-      return "credential";
-    }
-    if (containsAny(normalized, "organization", "workspace", "account")) {
-      return "account";
-    }
-    return "unclassified";
-  }
-
-  private static boolean containsAny(String value, String... candidates) {
-    for (String candidate : candidates) {
-      if (value.contains(candidate)) {
-        return true;
-      }
-    }
-    return false;
-  }
 }

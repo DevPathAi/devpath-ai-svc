@@ -69,11 +69,13 @@ class MentorReleaseArtifactPipelineTest {
         Path.of("src/main/resources/application.yml"), fixture,
         MentorGoldenCase.load(fixture), new MentorPromptBuilder(),
         java.util.Map.of("ollama", "https://eval-ollama.example.test"),
+        MentorReleaseEvalManifest.DEVELOPMENT_MODEL,
+        Path.of("src/test/resources/eval/mentor-development-tuning-v1.Modelfile"),
         bootJar, shared, runtimeGraph, currentRuntimeGraph, bootGraph,
         Path.of("gradle.properties"));
 
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
-    Path manifestPath = temp.resolve("mentor-release-eval-manifest-v3.json");
+    Path manifestPath = temp.resolve("mentor-release-eval-manifest-v4.json");
     manifest.write(manifestPath);
     MentorReleaseEvalManifest.read(manifestPath).validate(inputs);
 

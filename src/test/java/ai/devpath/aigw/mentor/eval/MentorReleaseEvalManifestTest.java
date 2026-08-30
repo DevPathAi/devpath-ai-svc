@@ -25,18 +25,22 @@ class MentorReleaseEvalManifestTest {
     MentorReleaseEvalManifest.Inputs inputs = inputs(SOURCE, GITOPS, rendered());
 
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
-    Path path = temp.resolve("mentor-release-eval-manifest-v3.json");
+    Path path = temp.resolve("mentor-release-eval-manifest-v4.json");
     manifest.write(path);
     MentorReleaseEvalManifest loaded = MentorReleaseEvalManifest.read(path);
     loaded.validate(inputs);
 
-    assertThat(loaded.schemaVersion()).isEqualTo("mentor-release-eval/v3");
+    assertThat(loaded.schemaVersion()).isEqualTo("mentor-release-eval/v4");
+    assertThat(loaded.runtimePrimaryModel()).isEqualTo("qwen2.5:3b");
+    assertThat(loaded.runtimeFallbackModels()).containsExactly("claude-sonnet-4-6");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::role)
-        .containsExactly("primary", "fallback");
+        .containsExactly("development-eval");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::provider)
-        .containsExactly("ollama", "claude");
+        .containsExactly("ollama");
     assertThat(loaded.models()).extracting(MentorReleaseEvalManifest.Model::modelId)
-        .containsExactly("qwen2.5:3b", "claude-sonnet-4-6");
+        .containsExactly("devpath-mentor-eval:mentor-development-tuning-v1");
+    assertThat(loaded.tuningRevision()).isEqualTo("mentor-development-tuning-v1");
+    assertThat(loaded.tuningSha256()).hasSize(64);
     assertThat(loaded.fixtureSha256()).hasSize(64);
     assertThat(loaded.promptSha256()).hasSize(64);
     assertThat(loaded.sharedCoordinate()).isEqualTo(MentorReleaseArtifactFixture.COORDINATE);
@@ -69,6 +73,22 @@ class MentorReleaseEvalManifestTest {
     MentorReleaseEvalManifest wrongPrompt = manifest.withPromptSha256("f".repeat(64));
     assertThatThrownBy(() -> wrongPrompt.validate(valid))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void rejectsTuningRecipeDriftAndGoldenFixtureReuse() throws Exception {
+    MentorReleaseEvalManifest.Inputs valid = inputs(SOURCE, GITOPS, rendered());
+    MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(valid);
+    Path changedRecipe = temp.resolve("changed.Modelfile");
+    Files.writeString(changedRecipe,
+        Files.readString(valid.tuningRecipe()).replace("PARAMETER seed 42", "PARAMETER seed 7"));
+
+    assertThatThrownBy(() -> manifest.validate(valid.withTuningRecipe(changedRecipe)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> MentorReleaseEvalManifest.create(
+        valid.withTuningRecipe(valid.fixture())))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("separate");
   }
 
   @Test
@@ -151,14 +171,17 @@ class MentorReleaseEvalManifestTest {
   }
 
   @Test
-  void rejectsSwappedModelsAndMissingFallback() throws Exception {
+  void rejectsSubstitutedOrMissingDevelopmentModel() throws Exception {
     MentorReleaseEvalManifest.Inputs inputs = inputs(SOURCE, GITOPS, rendered());
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
 
     assertThatThrownBy(() -> manifest.withModels(List.of(
-        manifest.models().get(1), manifest.models().get(0))).validate(inputs))
+        new MentorReleaseEvalManifest.Model(
+            "development-eval", "ollama", "forged-model",
+            "http://ollama.devpath.svc:11434", "https://eval-ollama.example.test", null)))
+        .validate(inputs))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> manifest.withModels(List.of(manifest.models().get(0))).validate(inputs))
+    assertThatThrownBy(() -> manifest.withModels(List.of()).validate(inputs))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -172,8 +195,9 @@ class MentorReleaseEvalManifestTest {
     MentorEvalEvidence evidence = MentorEvalEvidence.passing(
         manifest, MentorReleaseEvalManifest.sha256(manifestPath), now.minusSeconds(7200),
         List.of(
-            new MentorEvalEvidence.ModelResult("primary", "ollama", "qwen2.5:3b", 1.0, 0.95, 10),
-            new MentorEvalEvidence.ModelResult("fallback", "claude", "claude-sonnet-4-6", 1.0, 0.95, 11)));
+            new MentorEvalEvidence.ModelResult(
+                "development-eval", "ollama",
+                "devpath-mentor-eval:mentor-development-tuning-v1", 1.0, 0.95, 10)));
 
     assertThatThrownBy(() -> evidence.validate(
         manifest, MentorReleaseEvalManifest.sha256(manifestPath),
@@ -193,7 +217,7 @@ class MentorReleaseEvalManifestTest {
     manifest.write(manifestPath);
     Instant now = Instant.parse("2026-08-16T12:00:00Z");
     MentorEvalEvidence malformed = new MentorEvalEvidence(
-        "mentor-release-eval-evidence/v3",
+        "mentor-release-eval-evidence/v4",
         MentorReleaseEvalManifest.sha256(manifestPath), manifest.releaseId(),
         manifest.sourceRevision(), manifest.gitOpsRevision(), manifest.renderedConfigSha256(),
         manifest.sharedCoordinate(), manifest.sharedArtifactSha256(), manifest.bootJarSha256(),
@@ -202,9 +226,9 @@ class MentorReleaseEvalManifestTest {
         now.toString(), "PASS", Double.NaN, 0.95, manifest.requiredQualityRate(),
         List.of(
             new MentorEvalEvidence.ModelResult(
-                "primary", "ollama", "qwen2.5:3b", Double.NaN, 0.95, 10),
-            new MentorEvalEvidence.ModelResult(
-                "fallback", "claude", "claude-sonnet-4-6", 1.0, 0.95, 11)));
+                "development-eval", "ollama",
+                "devpath-mentor-eval:mentor-development-tuning-v1",
+                Double.NaN, 0.95, 10)));
 
     assertThatThrownBy(() -> malformed.validate(
         manifest, MentorReleaseEvalManifest.sha256(manifestPath),
@@ -222,6 +246,8 @@ class MentorReleaseEvalManifestTest {
         Path.of("src/main/resources/application.yml"), fixture,
         MentorGoldenCase.load(fixture), new MentorPromptBuilder(),
         java.util.Map.of("ollama", "https://eval-ollama.example.test"),
+        MentorReleaseEvalManifest.DEVELOPMENT_MODEL,
+        Path.of("src/test/resources/eval/mentor-development-tuning-v1.Modelfile"),
         artifacts.bootJar(), artifacts.sharedArtifact(), artifacts.dependencyGraph(),
         artifacts.currentDependencyGraph(), artifacts.bootLibraryGraph(),
         artifacts.gradleProperties());
