@@ -45,8 +45,11 @@ class MissionSpineReleaseEvalEvidenceTest {
         "producer_run_attempt",
         "ai_source_sha",
         "gitops_source_sha",
-        "primary_model",
-        "fallback_models",
+        "runtime_primary_model",
+        "runtime_fallback_models",
+        "development_model",
+        "tuning_revision",
+        "tuning_sha256",
         "prompt_sha256",
         "fixture_revision",
         "fixture_sha256",
@@ -68,7 +71,10 @@ class MissionSpineReleaseEvalEvidenceTest {
         .containsEntry("producer_run_attempt", 1)
         .containsEntry("ai_source_sha", SOURCE)
         .containsEntry("gitops_source_sha", GITOPS)
-        .containsEntry("primary_model", "qwen2.5:3b")
+        .containsEntry("runtime_primary_model", "qwen2.5:3b")
+        .containsEntry("development_model",
+            "devpath-mentor-eval:mentor-development-tuning-v1")
+        .containsEntry("tuning_revision", "mentor-development-tuning-v1")
         .containsEntry("fixture_revision", "mentor-golden-v2")
         .containsEntry("hard_invariants_percent", 100.0)
         .containsEntry("usefulness_percent", 95.0)
@@ -76,8 +82,10 @@ class MissionSpineReleaseEvalEvidenceTest {
         .containsEntry("approval_environment", "mission-spine-ai-release-eval")
         .containsEntry("approval_job_name", "Run AI release evaluation")
         .containsEntry("approved_by", "independent-reviewer");
-    assertThat(payload.get("fallback_models"))
+    assertThat(payload.get("runtime_fallback_models"))
         .isEqualTo(List.of("claude-sonnet-4-6"));
+    assertThat(payload.get("tuning_sha256"))
+        .isEqualTo(MentorReleaseEvalManifest.sha256(fixture.inputs().tuningRecipe()));
     assertThat(payload.get("rendered_config_sha256"))
         .isEqualTo(MentorReleaseEvalManifest.sha256(fixture.inputs().renderedConfig()));
     assertThat(payload.get("ollama_endpoint_sha256"))
@@ -100,8 +108,11 @@ class MissionSpineReleaseEvalEvidenceTest {
         payload -> payload.put("producer_run_attempt", 2),
         payload -> payload.put("ai_source_sha", "e".repeat(40)),
         payload -> payload.put("gitops_source_sha", "f".repeat(40)),
-        payload -> payload.put("primary_model", "forged-model"),
-        payload -> payload.put("fallback_models", List.of("forged-fallback")),
+        payload -> payload.put("runtime_primary_model", "forged-model"),
+        payload -> payload.put("runtime_fallback_models", List.of("forged-fallback")),
+        payload -> payload.put("development_model", "forged-development-model"),
+        payload -> payload.put("tuning_revision", "forged-tuning"),
+        payload -> payload.put("tuning_sha256", "0".repeat(64)),
         payload -> payload.put("prompt_sha256", "1".repeat(64)),
         payload -> payload.put("fixture_revision", "forged-fixture"),
         payload -> payload.put("fixture_sha256", "2".repeat(64)),
@@ -137,9 +148,8 @@ class MissionSpineReleaseEvalEvidenceTest {
         NOW.minusSeconds(10),
         List.of(
             new MentorEvalEvidence.ModelResult(
-                "primary", "ollama", "qwen2.5:3b", 1.0, 0.89, 10),
-            new MentorEvalEvidence.ModelResult(
-                "fallback", "claude", "claude-sonnet-4-6", 1.0, 0.95, 11)));
+                "development-eval", "ollama",
+                "devpath-mentor-eval:mentor-development-tuning-v1", 1.0, 0.89, 10)));
     failed.write(fixture.evaluation());
 
     assertThatThrownBy(() -> MissionSpineReleaseEvalEvidence.create(fixture.context()))
@@ -194,9 +204,15 @@ class MissionSpineReleaseEvalEvidenceTest {
         candidate -> object(object(candidate, "services"), "devpath-ai-svc")
             .put("repository", "attacker/ai"),
         candidate -> object(candidate, "ai_release_eval_config")
-            .put("primary_model", "forged-primary"),
+            .put("runtime_primary_model", "forged-primary"),
         candidate -> object(candidate, "ai_release_eval_config")
-            .put("fallback_models", List.of("forged-fallback")),
+            .put("runtime_fallback_models", List.of("forged-fallback")),
+        candidate -> object(candidate, "ai_release_eval_config")
+            .put("development_model", "forged-development"),
+        candidate -> object(candidate, "ai_release_eval_config")
+            .put("tuning_revision", "forged-tuning"),
+        candidate -> object(candidate, "ai_release_eval_config")
+            .put("tuning_sha256", "0".repeat(64)),
         candidate -> object(candidate, "ai_release_eval_config")
             .put("prompt_sha256", "1".repeat(64)),
         candidate -> object(candidate, "ai_release_eval_config")
@@ -280,11 +296,13 @@ class MissionSpineReleaseEvalEvidenceTest {
         Path.of("src/main/resources/application.yml"), golden,
         MentorGoldenCase.load(golden), new MentorPromptBuilder(),
         Map.of("ollama", "https://EVAL-OLLAMA.example.test:443/api/"),
+        MentorReleaseEvalManifest.DEVELOPMENT_MODEL,
+        Path.of("src/test/resources/eval/mentor-development-tuning-v1.Modelfile"),
         artifacts.bootJar(), artifacts.sharedArtifact(), artifacts.dependencyGraph(),
         artifacts.currentDependencyGraph(), artifacts.bootLibraryGraph(),
         artifacts.gradleProperties());
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(inputs);
-    Path manifestPath = temp.resolve("mentor-release-eval-manifest-v3.json");
+    Path manifestPath = temp.resolve("mentor-release-eval-manifest-v4.json");
     manifest.write(manifestPath);
     MentorEvalEvidence evaluation = MentorEvalEvidence.passing(
         manifest,
@@ -292,10 +310,9 @@ class MissionSpineReleaseEvalEvidenceTest {
         NOW.minusSeconds(10),
         List.of(
             new MentorEvalEvidence.ModelResult(
-                "primary", "ollama", "qwen2.5:3b", 1.0, 0.95, 10),
-            new MentorEvalEvidence.ModelResult(
-                "fallback", "claude", "claude-sonnet-4-6", 1.0, 0.96, 11)));
-    Path evaluationPath = temp.resolve("mentor-release-eval-evidence-v3.json");
+                "development-eval", "ollama",
+                "devpath-mentor-eval:mentor-development-tuning-v1", 1.0, 0.95, 10)));
+    Path evaluationPath = temp.resolve("mentor-release-eval-evidence-v4.json");
     evaluation.write(evaluationPath);
     Path candidatePath = temp.resolve("candidate-spec.json");
     LinkedHashMap<String, Object> candidate = new LinkedHashMap<>();
@@ -309,8 +326,11 @@ class MissionSpineReleaseEvalEvidenceTest {
             "repository", "DevPathAi/devpath-ai-svc",
             "source_sha", SOURCE)));
     candidate.put("ai_release_eval_config", Map.of(
-        "primary_model", "qwen2.5:3b",
-        "fallback_models", List.of("claude-sonnet-4-6"),
+        "runtime_primary_model", "qwen2.5:3b",
+        "runtime_fallback_models", List.of("claude-sonnet-4-6"),
+        "development_model", "devpath-mentor-eval:mentor-development-tuning-v1",
+        "tuning_revision", manifest.tuningRevision(),
+        "tuning_sha256", manifest.tuningSha256(),
         "prompt_sha256", manifest.promptSha256(),
         "fixture_revision", manifest.fixtureRevision(),
         "fixture_sha256", manifest.fixtureSha256(),

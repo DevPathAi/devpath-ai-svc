@@ -31,7 +31,7 @@ record MentorEvalEvidence(
     double requiredQualityRate,
     List<ModelResult> models) {
 
-  private static final String SCHEMA = "mentor-release-eval-evidence/v3";
+  private static final String SCHEMA = "mentor-release-eval-evidence/v4";
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
   static MentorEvalEvidence passing(MentorReleaseEvalManifest manifest, String manifestSha256,

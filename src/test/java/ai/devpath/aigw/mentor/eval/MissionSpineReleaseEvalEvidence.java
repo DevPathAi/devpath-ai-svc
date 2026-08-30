@@ -32,8 +32,11 @@ record MissionSpineReleaseEvalEvidence(
     long producerRunAttempt,
     String aiSourceSha,
     String gitopsSourceSha,
-    String primaryModel,
-    List<String> fallbackModels,
+    String runtimePrimaryModel,
+    List<String> runtimeFallbackModels,
+    String developmentModel,
+    String tuningRevision,
+    String tuningSha256,
     String promptSha256,
     String fixtureRevision,
     String fixtureSha256,
@@ -65,8 +68,11 @@ record MissionSpineReleaseEvalEvidence(
       .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
       .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
   private static final List<String> AI_CONFIG_KEYS = List.of(
-      "primary_model",
-      "fallback_models",
+      "runtime_primary_model",
+      "runtime_fallback_models",
+      "development_model",
+      "tuning_revision",
+      "tuning_sha256",
       "prompt_sha256",
       "fixture_revision",
       "fixture_sha256",
@@ -79,8 +85,11 @@ record MissionSpineReleaseEvalEvidence(
       "producer_run_attempt",
       "ai_source_sha",
       "gitops_source_sha",
-      "primary_model",
-      "fallback_models",
+      "runtime_primary_model",
+      "runtime_fallback_models",
+      "development_model",
+      "tuning_revision",
+      "tuning_sha256",
       "prompt_sha256",
       "fixture_revision",
       "fixture_sha256",
@@ -110,19 +119,13 @@ record MissionSpineReleaseEvalEvidence(
         || !manifest.gitOpsRevision().equals(context.gitopsSourceSha())) {
       throw new IllegalArgumentException("release source identity does not match the ET9 manifest");
     }
-    if (manifest.models().size() < 2
-        || !"primary".equals(manifest.models().getFirst().role())
-        || !"ollama".equals(manifest.models().getFirst().provider())
-        || manifest.models().subList(1, manifest.models().size()).stream()
-            .anyMatch(model ->
-                !"fallback".equals(model.role()) || !"claude".equals(model.provider()))) {
+    if (manifest.models().size() != 1
+        || !"development-eval".equals(manifest.models().getFirst().role())
+        || !"ollama".equals(manifest.models().getFirst().provider())) {
       throw new IllegalArgumentException(
-          "release model order is not Ollama primary then Claude fallbacks");
+          "development release evaluation must use exactly one local Ollama model");
     }
 
-    List<String> fallbackModels = manifest.models().subList(1, manifest.models().size()).stream()
-        .map(MentorReleaseEvalManifest.Model::modelId)
-        .toList();
     double hardPercent = percent(evaluation.hardInvariantRate());
     double usefulnessPercent = percent(evaluation.qualityRate());
     double baselineDelta = roundedPoints(
@@ -131,7 +134,9 @@ record MissionSpineReleaseEvalEvidence(
     MissionSpineReleaseEvalEvidence result = new MissionSpineReleaseEvalEvidence(
         context.candidateSpecSha256(), STATUS, context.producerRunId(),
         context.producerRunAttempt(), context.aiSourceSha(), context.gitopsSourceSha(),
-        manifest.models().getFirst().modelId(), fallbackModels, manifest.promptSha256(),
+        manifest.runtimePrimaryModel(), manifest.runtimeFallbackModels(),
+        manifest.models().getFirst().modelId(), manifest.tuningRevision(),
+        manifest.tuningSha256(), manifest.promptSha256(),
         manifest.fixtureRevision(), manifest.fixtureSha256(), manifest.renderedConfigSha256(),
         ollamaEndpointSha256(manifest.models().getFirst().evaluationEndpoint()),
         hardPercent, usefulnessPercent, baselineDelta, approval.approvalEnvironment(),
@@ -194,17 +199,18 @@ record MissionSpineReleaseEvalEvidence(
         || config.size() != AI_CONFIG_KEYS.size()) {
       throw new IllegalArgumentException("candidate AI config exact key set mismatch");
     }
-    List<String> fallbacks = manifest.models().subList(1, manifest.models().size()).stream()
-        .map(MentorReleaseEvalManifest.Model::modelId)
-        .toList();
     if (!"candidate-spec".equals(string(candidate, "document_type"))
         || !evalInputs.releaseId().equals(string(candidate, "release_id"))
         || !"DevPathAi/devpath-gitops".equals(string(gitops, "repository"))
         || !gitopsSourceSha.equals(string(gitops, "base_sha"))
         || !"DevPathAi/devpath-ai-svc".equals(string(aiService, "repository"))
         || !aiSourceSha.equals(string(aiService, "source_sha"))
-        || !manifest.models().getFirst().modelId().equals(string(config, "primary_model"))
-        || !fallbacks.equals(strings(config, "fallback_models"))
+        || !manifest.runtimePrimaryModel().equals(string(config, "runtime_primary_model"))
+        || !manifest.runtimeFallbackModels().equals(strings(config, "runtime_fallback_models"))
+        || !manifest.models().getFirst().modelId().equals(
+            string(config, "development_model"))
+        || !manifest.tuningRevision().equals(string(config, "tuning_revision"))
+        || !manifest.tuningSha256().equals(string(config, "tuning_sha256"))
         || !manifest.promptSha256().equals(string(config, "prompt_sha256"))
         || !manifest.fixtureRevision().equals(string(config, "fixture_revision"))
         || !manifest.fixtureSha256().equals(string(config, "fixture_sha256"))
@@ -251,8 +257,11 @@ record MissionSpineReleaseEvalEvidence(
           integer(value, "producer_run_attempt"),
           string(value, "ai_source_sha"),
           string(value, "gitops_source_sha"),
-          string(value, "primary_model"),
-          strings(value, "fallback_models"),
+          string(value, "runtime_primary_model"),
+          strings(value, "runtime_fallback_models"),
+          string(value, "development_model"),
+          string(value, "tuning_revision"),
+          string(value, "tuning_sha256"),
           string(value, "prompt_sha256"),
           string(value, "fixture_revision"),
           string(value, "fixture_sha256"),
@@ -284,8 +293,11 @@ record MissionSpineReleaseEvalEvidence(
     value.put("producer_run_attempt", producerRunAttempt);
     value.put("ai_source_sha", aiSourceSha);
     value.put("gitops_source_sha", gitopsSourceSha);
-    value.put("primary_model", primaryModel);
-    value.put("fallback_models", fallbackModels);
+    value.put("runtime_primary_model", runtimePrimaryModel);
+    value.put("runtime_fallback_models", runtimeFallbackModels);
+    value.put("development_model", developmentModel);
+    value.put("tuning_revision", tuningRevision);
+    value.put("tuning_sha256", tuningSha256);
     value.put("prompt_sha256", promptSha256);
     value.put("fixture_revision", fixtureRevision);
     value.put("fixture_sha256", fixtureSha256);
@@ -310,12 +322,15 @@ record MissionSpineReleaseEvalEvidence(
         || producerRunAttempt != 1
         || !SHA40.matcher(aiSourceSha).matches()
         || !SHA40.matcher(gitopsSourceSha).matches()
-        || !SAFE_ID.matcher(primaryModel).matches()
-        || fallbackModels == null
-        || fallbackModels.isEmpty()
-        || fallbackModels.stream().anyMatch(model -> !SAFE_ID.matcher(model).matches())
-        || new LinkedHashSet<>(fallbackModels).size() != fallbackModels.size()
-        || fallbackModels.contains(primaryModel)
+        || !SAFE_ID.matcher(runtimePrimaryModel).matches()
+        || runtimeFallbackModels == null
+        || runtimeFallbackModels.isEmpty()
+        || runtimeFallbackModels.stream().anyMatch(model -> !SAFE_ID.matcher(model).matches())
+        || new LinkedHashSet<>(runtimeFallbackModels).size() != runtimeFallbackModels.size()
+        || runtimeFallbackModels.contains(runtimePrimaryModel)
+        || !SAFE_ID.matcher(developmentModel).matches()
+        || !SAFE_ID.matcher(tuningRevision).matches()
+        || !SHA64.matcher(tuningSha256).matches()
         || !SHA64.matcher(promptSha256).matches()
         || !SAFE_ID.matcher(fixtureRevision).matches()
         || !SHA64.matcher(fixtureSha256).matches()
