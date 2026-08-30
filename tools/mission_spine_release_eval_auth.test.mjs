@@ -25,7 +25,7 @@ const candidateWorkflowBytes = Buffer.from(
   '      release_id:\n        required: true\n        type: string\npermissions:\n  contents: read\n',
 );
 
-test('prod26r8 dispatcher starts the protected main evaluation as the Actions App', () => {
+test('prod26r9 dispatcher starts the protected main evaluation as the Actions App', () => {
   const workflow = readFileSync(
     new URL('../.github/workflows/mission-spine-release-eval.yml', import.meta.url),
     'utf8',
@@ -36,13 +36,13 @@ test('prod26r8 dispatcher starts the protected main evaluation as the Actions Ap
   );
   assert.match(
     workflow,
-    /dispatch-release-eval:\n\s+if: github\.ref == 'refs\/heads\/chore\/prod26r8-ai-eval-dispatch'/,
+    /dispatch-release-eval:\n\s+if: github\.ref == 'refs\/heads\/chore\/prod26r9-ai-eval-dispatch'/,
   );
   assert.match(workflow, /actions: write/);
-  assert.match(workflow, /RELEASE_ID: ms-20260829-prod26r8/);
+  assert.match(workflow, /RELEASE_ID: ms-20260830-prod26r9/);
   assert.match(
     workflow,
-    /CANDIDATE_SPEC_SHA256: a0ad5fd087db806c56fe41f195b7722cd97a821b71c6178f2959a12679d0614f/,
+    /CANDIDATE_SPEC_SHA256: 9cc685a7ed8fda010ba8bf1b920afd0aed91fba00fb3ccb42a2b12208be1cff4/,
   );
   assert.match(
     workflow,
@@ -50,7 +50,7 @@ test('prod26r8 dispatcher starts the protected main evaluation as the Actions Ap
   );
   assert.match(
     workflow,
-    /GITOPS_SOURCE_SHA: df94fba536fd6e1740333d6d6e79e11349b9e2b7/,
+    /GITOPS_SOURCE_SHA: 44d0e5f72fbd3c82e4499fc3c8587f5aff92d313/,
   );
   assert.match(workflow, /test "\$inner_actor" = "github-actions\[bot\]"/);
   assert.match(workflow, /test "\$inner_triggering_actor" = "github-actions\[bot\]"/);
