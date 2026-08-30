@@ -55,8 +55,11 @@ function candidateBytes(overrides = {}) {
     home: {},
     analytics_privacy: {},
     ai_release_eval_config: {
-      primary_model: 'qwen2.5:3b',
-      fallback_models: ['claude-sonnet-4-6'],
+      runtime_primary_model: 'qwen2.5:3b',
+      runtime_fallback_models: ['claude-sonnet-4-6'],
+      development_model: 'devpath-mentor-eval:mentor-development-tuning-v1',
+      tuning_revision: 'mentor-development-tuning-v1',
+      tuning_sha256: '7'.repeat(64),
       prompt_sha256: '3'.repeat(64),
       fixture_revision: 'mentor-golden-v2',
       fixture_sha256: '4'.repeat(64),
@@ -455,6 +458,54 @@ test('candidate artifact binds API-current attempt, exact ZIP, source and workfl
       zipBytes: invalidZip,
     }), /base_web_tag/i);
   }
+
+  const approvedConfig = JSON.parse(
+    candidateBytes().toString('utf8'),
+  ).ai_release_eval_config;
+  for (const [field, value] of [
+    ['development_model', 'claude-sonnet-4-6'],
+    ['tuning_revision', 'mentor-development-tuning-v2'],
+    ['tuning_sha256', '0'.repeat(64)],
+  ]) {
+    const invalidConfig = structuredClone(approvedConfig);
+    invalidConfig[field] = value;
+    const invalidRaw = candidateBytes({ ai_release_eval_config: invalidConfig });
+    const invalidZip = storedZip([['candidate-spec.json', invalidRaw]]);
+    const invalidArtifact = {
+      ...artifact,
+      size_in_bytes: invalidZip.length,
+      digest: `sha256:${sha256(invalidZip)}`,
+    };
+    assert.throws(() => validateCandidateArtifactFacts({
+      ...common,
+      candidateSpecSha256: sha256(invalidRaw),
+      run,
+      artifact: invalidArtifact,
+      zipBytes: invalidZip,
+    }), /candidate AI/i);
+  }
+  const legacyConfig = {
+    primary_model: approvedConfig.runtime_primary_model,
+    fallback_models: approvedConfig.runtime_fallback_models,
+    prompt_sha256: approvedConfig.prompt_sha256,
+    fixture_revision: approvedConfig.fixture_revision,
+    fixture_sha256: approvedConfig.fixture_sha256,
+    rendered_config_sha256: approvedConfig.rendered_config_sha256,
+    ollama_endpoint_sha256: approvedConfig.ollama_endpoint_sha256,
+  };
+  const legacyRaw = candidateBytes({ ai_release_eval_config: legacyConfig });
+  const legacyZip = storedZip([['candidate-spec.json', legacyRaw]]);
+  assert.throws(() => validateCandidateArtifactFacts({
+    ...common,
+    candidateSpecSha256: sha256(legacyRaw),
+    run,
+    artifact: {
+      ...artifact,
+      size_in_bytes: legacyZip.length,
+      digest: `sha256:${sha256(legacyZip)}`,
+    },
+    zipBytes: legacyZip,
+  }), /exact key set/i);
 
   const sourceFacts = {
     expectedReleaseId: releaseId,

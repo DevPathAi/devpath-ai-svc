@@ -260,8 +260,11 @@ const GITOPS_KEYS = [
   'repository', 'base_sha', 'base_web_tag', 'base_web_digest', 'web_kustomization',
 ];
 const AI_CONFIG_KEYS = [
-  'primary_model',
-  'fallback_models',
+  'runtime_primary_model',
+  'runtime_fallback_models',
+  'development_model',
+  'tuning_revision',
+  'tuning_sha256',
   'prompt_sha256',
   'fixture_revision',
   'fixture_sha256',
@@ -308,18 +311,26 @@ function candidateContract(bytes, expectedReleaseId, candidateSpecSha256) {
   exactKeys(value.ai_release_eval_config, AI_CONFIG_KEYS, 'candidate AI config');
   const config = value.ai_release_eval_config;
   if (
-    typeof config.primary_model !== 'string' ||
-    !Array.isArray(config.fallback_models) ||
-    config.fallback_models.length < 1 ||
-    config.fallback_models.some((item) => typeof item !== 'string') ||
-    new Set(config.fallback_models).size !== config.fallback_models.length ||
-    config.fallback_models.includes(config.primary_model) ||
+    typeof config.runtime_primary_model !== 'string' ||
+    config.runtime_primary_model.length < 2 ||
+    !Array.isArray(config.runtime_fallback_models) ||
+    config.runtime_fallback_models.length < 1 ||
+    config.runtime_fallback_models.some(
+      (item) => typeof item !== 'string' || item.length < 2,
+    ) ||
+    new Set(config.runtime_fallback_models).size !==
+      config.runtime_fallback_models.length ||
+    config.runtime_fallback_models.includes(config.runtime_primary_model) ||
+    config.development_model !==
+      'devpath-mentor-eval:mentor-development-tuning-v1' ||
+    config.tuning_revision !== 'mentor-development-tuning-v1' ||
     typeof config.fixture_revision !== 'string' ||
     config.fixture_revision.length < 2
   ) {
     fail('candidate AI model or fixture configuration is invalid');
   }
   for (const field of [
+    'tuning_sha256',
     'prompt_sha256',
     'fixture_sha256',
     'rendered_config_sha256',
