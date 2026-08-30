@@ -1,3 +1,4 @@
+# Development-only few-shot tuning recipe.
 FROM qwen2.5:3b
 
 PARAMETER temperature 0
