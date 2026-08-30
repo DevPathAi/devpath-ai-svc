@@ -370,9 +370,9 @@ jobs:
       contents: read
     env:
       RELEASE_ID: ms-20260830-prod26r9
-      CANDIDATE_SPEC_SHA256: aa5258cad6f117844b03a736e74bdff1b7a82e257191cbcd264ceb66c36bdddd
+      CANDIDATE_SPEC_SHA256: f86f010532dff3d231528f5ba4bc9b128704b9582393415b520ab981f7ad9ca5
       AI_SOURCE_SHA: e407aa7f6309dc0241d7c2582e187211ee23eb83
-      GITOPS_SOURCE_SHA: 02800678ec36b1d662440b38885af2311298dfa8
+      GITOPS_SOURCE_SHA: bda5d3d991922db18ceafe379fb54e2d3ee603fc
       INPUT_RELEASE_ID: ${{ inputs.release_id }}
       INPUT_CANDIDATE_SPEC_SHA256: ${{ inputs.candidate_spec_sha256 }}
       INPUT_AI_SOURCE_SHA: ${{ inputs.ai_source_sha }}
