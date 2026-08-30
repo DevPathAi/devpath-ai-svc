@@ -38,7 +38,7 @@ public final class MissionSpineReleaseEvalEvidenceCli {
     }
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.read(manifestPath);
     manifest.validate(evalInputs);
-    manifest.validateCredentials(environment);
+    manifest.validateNoRemoteCredentials();
     MissionSpineReleaseEvalEvidence.Context context =
         new MissionSpineReleaseEvalEvidence.Context(
             candidateSha,

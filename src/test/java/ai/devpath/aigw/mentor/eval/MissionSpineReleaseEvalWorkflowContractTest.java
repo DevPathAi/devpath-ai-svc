@@ -68,6 +68,9 @@ class MissionSpineReleaseEvalWorkflowContractTest {
         .contains("ollama/ollama:0.32.5@sha256:98c19ced6600f2924e80b92d701cd867d8f7ef0c4dde516c619484e31e47f103")
         .contains("--publish 127.0.0.1:11434:11434")
         .contains("EXPECTED_OLLAMA_MODEL_DIGEST: 357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b")
+        .contains("MENTOR_EVAL_MODEL: devpath-mentor-eval:mentor-development-tuning-v1")
+        .contains("MENTOR_EVAL_TUNING_RECIPE: src/test/resources/eval/mentor-development-tuning-v1.Modelfile")
+        .contains("ollama create \"${MENTOR_EVAL_MODEL}\"")
         .contains("python3 tools/ollama_tls_proxy.py")
         .contains("--host 127.0.0.1", "--port 11435")
         .contains("tls_ready=false")
@@ -135,13 +138,16 @@ class MissionSpineReleaseEvalWorkflowContractTest {
   }
 
   @Test
-  void providerCredentialsAppearOnlyInsideTheProtectedLiveEvaluationStep()
+  void developmentEvaluationUsesOnlyLocalOllamaAndNoRemoteProviderCredential()
       throws Exception {
     String text = Files.readString(WORKFLOW);
-    assertThat(count(text, "ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}"))
-        .isEqualTo(1);
+    assertThat(text).doesNotContain("ANTHROPIC_API_KEY", "api.anthropic.com");
     assertThat(count(text, "MENTOR_EVAL_OLLAMA_BASE_URL:"))
         .isEqualTo(1);
+    assertThat(count(text, "MENTOR_EVAL_MODEL:"))
+        .isEqualTo(2);
+    assertThat(count(text, "MENTOR_EVAL_TUNING_RECIPE:"))
+        .isEqualTo(2);
     assertThat(text)
         .contains("MENTOR_EVAL_OLLAMA_BASE_URL: https://127.0.0.1:11435")
         .doesNotContain("vars.MENTOR_EVAL_OLLAMA_BASE_URL");

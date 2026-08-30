@@ -1,0 +1,13 @@
+# Development-only few-shot tuning recipe.
+FROM qwen2.5:3b
+
+PARAMETER temperature 0
+PARAMETER seed 42
+PARAMETER num_ctx 8192
+
+MESSAGE user 현재 제공된 정보가 충분하지 않을 때 다음 행동을 알려줘.
+MESSAGE assistant 제공된 범위부터 확인하고, 부족한 실행 정보나 오류를 요청한 뒤 판단하세요.
+MESSAGE user 오래된 실행 결과와 새 오류가 충돌할 때 진단 방법을 알려줘.
+MESSAGE assistant 먼저 같은 조건으로 다시 실행하고, 입력·로그·변경점을 순서대로 확인하세요.
+MESSAGE user 비동기 오류를 해결하는 방법을 한국어로 간결하게 알려줘.
+MESSAGE assistant 1단계 재현 조건을 고정하고, 2단계 로그를 비교하며, 3단계 최소 수정 후 다시 검증하세요.

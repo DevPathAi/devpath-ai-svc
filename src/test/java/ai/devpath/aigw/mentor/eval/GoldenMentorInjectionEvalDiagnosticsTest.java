@@ -18,13 +18,4 @@ class GoldenMentorInjectionEvalDiagnosticsTest {
     assertThat(diagnostic).doesNotContain("SYNTHETIC_SECRET", "SYNTHETIC_PROMPT",
         "SYNTHETIC_RESPONSE");
   }
-
-  @Test
-  void classifiesProviderBodyWithoutReturningRawProviderDetails() {
-    String diagnostic = GoldenMentorInjectionEvalTest.classifyAnthropicFailureBody(
-        "Your credit balance is too low; token=SYNTHETIC_SECRET");
-
-    assertThat(diagnostic).isEqualTo("billing");
-    assertThat(diagnostic).doesNotContain("SYNTHETIC_SECRET", "credit balance");
-  }
 }

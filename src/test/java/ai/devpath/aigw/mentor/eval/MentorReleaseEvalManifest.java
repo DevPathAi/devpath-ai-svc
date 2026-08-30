@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,7 +20,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipFile;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Versioned immutable contract for one exact release-model evaluation. */
+/**
+ * Versioned immutable contract for one development release evaluation.
+ * Runtime provider identities remain bound, but only the local Ollama tuning is invoked.
+ */
 record MentorReleaseEvalManifest(
     String schemaVersion,
     String releaseId,
@@ -33,7 +35,11 @@ record MentorReleaseEvalManifest(
     String bootJarSha256,
     String runtimeDependencyGraphSha256,
     String bootLibraryGraphSha256,
+    String runtimePrimaryModel,
+    List<String> runtimeFallbackModels,
     List<Model> models,
+    String tuningRevision,
+    String tuningSha256,
     String promptSha256,
     String fixtureRevision,
     String fixtureSha256,
@@ -43,8 +49,11 @@ record MentorReleaseEvalManifest(
     double maxBaselineDrop,
     long evidenceMaxAgeSeconds) {
 
-  static final String SCHEMA = "mentor-release-eval/v3";
+  static final String SCHEMA = "mentor-release-eval/v4";
   static final String FIXTURE_REVISION = "mentor-golden-v2";
+  static final String TUNING_REVISION = "mentor-development-tuning-v1";
+  static final String DEVELOPMENT_MODEL =
+      "devpath-mentor-eval:mentor-development-tuning-v1";
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
   private static final Pattern REVISION = Pattern.compile("[0-9a-f]{40,64}");
   private static final Pattern ENV_DEFAULT =
@@ -57,11 +66,8 @@ record MentorReleaseEvalManifest(
   static MentorReleaseEvalManifest create(Inputs inputs) {
     inputs.validateIdentifiers();
     validateCanonicalRenderedConfig(inputs.renderedConfig());
-    List<Model> models = runtimeModels(
-        inputs.renderedConfig(), inputs.applicationConfig(), inputs.evaluationEndpoints());
-    if (models.size() != 2) {
-      throw new IllegalArgumentException("release evaluation requires primary and fallback models");
-    }
+    RuntimeModels runtime = runtimeModels(inputs.renderedConfig(), inputs.applicationConfig());
+    Model developmentModel = developmentModel(inputs, runtime);
     ReleaseArtifacts artifacts = releaseArtifacts(inputs);
     return new MentorReleaseEvalManifest(
         SCHEMA,
@@ -74,7 +80,11 @@ record MentorReleaseEvalManifest(
         artifacts.bootJarSha256(),
         artifacts.runtimeDependencyGraphSha256(),
         artifacts.bootLibraryGraphSha256(),
-        models,
+        runtime.primaryModel(),
+        runtime.fallbackModels(),
+        List.of(developmentModel),
+        TUNING_REVISION,
+        sha256(inputs.tuningRecipe()),
         promptSuiteSha256(inputs.prompts(), inputs.cases()),
         FIXTURE_REVISION,
         sha256(inputs.fixture()),
@@ -130,7 +140,9 @@ record MentorReleaseEvalManifest(
   MentorReleaseEvalManifest withSharedCoordinate(String value) {
     return new MentorReleaseEvalManifest(schemaVersion, releaseId, sourceRevision, gitOpsRevision,
         renderedConfigSha256, value, sharedArtifactSha256, bootJarSha256,
-        runtimeDependencyGraphSha256, bootLibraryGraphSha256, models, promptSha256,
+        runtimeDependencyGraphSha256, bootLibraryGraphSha256,
+        runtimePrimaryModel, runtimeFallbackModels, models, tuningRevision, tuningSha256,
+        promptSha256,
         fixtureRevision, fixtureSha256,
         baselineScore, hardInvariantMinimum, qualityMinimum, maxBaselineDrop,
         evidenceMaxAgeSeconds);
@@ -161,7 +173,9 @@ record MentorReleaseEvalManifest(
       String dependencyGraphValue, String bootLibraryGraphValue) {
     return new MentorReleaseEvalManifest(schemaVersion, releaseId, sourceRevision, gitOpsRevision,
         renderedConfigSha256, sharedCoordinate, sharedArtifactValue, bootJarValue,
-        dependencyGraphValue, bootLibraryGraphValue, List.copyOf(modelValue), promptValue,
+        dependencyGraphValue, bootLibraryGraphValue,
+        runtimePrimaryModel, runtimeFallbackModels, List.copyOf(modelValue),
+        tuningRevision, tuningSha256, promptValue,
         fixtureRevision, fixtureValue,
         baselineScore, hardInvariantMinimum, qualityMinimum, maxBaselineDrop,
         evidenceMaxAgeSeconds);
@@ -171,15 +185,11 @@ record MentorReleaseEvalManifest(
     return Math.max(qualityMinimum, baselineScore - maxBaselineDrop);
   }
 
-  void validateCredentials(Map<String, String> environment) {
+  void validateNoRemoteCredentials() {
     for (Model model : models) {
-      if (model.credentialEnv() == null) {
-        continue;
-      }
-      String value = environment.get(model.credentialEnv());
-      if (value == null || value.isBlank()) {
+      if (model.credentialEnv() != null) {
         throw new IllegalArgumentException(
-            model.credentialEnv() + " is required for release model evaluation");
+            "remote provider credentials are forbidden in development evaluation");
       }
     }
   }
@@ -325,8 +335,7 @@ record MentorReleaseEvalManifest(
         coordinate, sharedHash, sha256(inputs.bootJar()), graphHash, bootGraphHash);
   }
 
-  private static List<Model> runtimeModels(Path renderedPath, Path applicationPath,
-      Map<String, String> evaluationEndpoints) {
+  private static RuntimeModels runtimeModels(Path renderedPath, Path applicationPath) {
     String rendered = readText(renderedPath, "rendered config");
     String application = readText(applicationPath, "application config");
     Map<String, String> runtime = renderedEnvironment(rendered);
@@ -339,47 +348,58 @@ record MentorReleaseEvalManifest(
     if (fallbacks.size() != 1) {
       throw new IllegalArgumentException("release config must name exactly one Mentor fallback");
     }
-    List<Model> result = new ArrayList<>();
-    result.add(model("primary", primary, runtime, runtimeIdentities, defaults,
-        evaluationEndpoints));
-    result.add(model("fallback", fallbacks.get(0), runtime, runtimeIdentities, defaults,
-        evaluationEndpoints));
-    if (result.get(0).provider().equals(result.get(1).provider())) {
-      throw new IllegalArgumentException("primary and fallback providers must be distinct");
+    if (!"ollama".equals(primary) || !"claude".equals(fallbacks.getFirst())) {
+      throw new IllegalArgumentException(
+          "release runtime must retain Ollama primary and Claude fallback");
     }
-    return List.copyOf(result);
+    if (!runtimeIdentities.contains("ANTHROPIC_API_KEY")) {
+      throw new IllegalArgumentException(
+          "release fallback credential identity is absent from runtime config");
+    }
+    String primaryModel = configured(runtime, defaults, "MENTOR_OLLAMA_MODEL");
+    String fallbackModel = configured(runtime, defaults, "MENTOR_CLAUDE_MODEL");
+    String primaryEndpoint = configured(runtime, defaults, "OLLAMA_BASE_URL");
+    validateEndpoint(primaryEndpoint);
+    validateEndpoint(configured(runtime, defaults, "MENTOR_CLAUDE_BASE_URL"));
+    return new RuntimeModels(primaryModel, List.of(fallbackModel), primaryEndpoint);
   }
 
-  private static Model model(String role, String provider, Map<String, String> runtime,
-      Set<String> runtimeIdentities, Map<String, String> defaults,
-      Map<String, String> evaluationEndpoints) {
-    String modelId;
-    String endpoint;
-    String evaluationEndpoint;
-    String credentialEnv;
-    switch (provider) {
-      case "ollama" -> {
-        modelId = configured(runtime, defaults, "MENTOR_OLLAMA_MODEL");
-        endpoint = configured(runtime, defaults, "OLLAMA_BASE_URL");
-        evaluationEndpoint = required(evaluationEndpoints, "ollama");
-        ollamaEvaluationEndpointSha256(evaluationEndpoint);
-        credentialEnv = null;
-      }
-      case "claude" -> {
-        modelId = configured(runtime, defaults, "MENTOR_CLAUDE_MODEL");
-        endpoint = configured(runtime, defaults, "MENTOR_CLAUDE_BASE_URL");
-        evaluationEndpoint = evaluationEndpoints.getOrDefault("claude", endpoint);
-        credentialEnv = "ANTHROPIC_API_KEY";
-        if (!runtimeIdentities.contains(credentialEnv)) {
-          throw new IllegalArgumentException(
-              "release fallback credential identity is absent from runtime config");
-        }
-      }
-      default -> throw new IllegalArgumentException("unsupported Mentor release provider");
+  private static Model developmentModel(Inputs inputs, RuntimeModels runtime) {
+    if (!DEVELOPMENT_MODEL.equals(inputs.evaluationModel())) {
+      throw new IllegalArgumentException("development evaluation model identity is invalid");
     }
-    validateEndpoint(endpoint);
-    validateEndpoint(evaluationEndpoint);
-    return new Model(role, provider, modelId, endpoint, evaluationEndpoint, credentialEnv);
+    validateTuningRecipe(inputs.tuningRecipe());
+    String evaluationEndpoint = required(inputs.evaluationEndpoints(), "ollama");
+    ollamaEvaluationEndpointSha256(evaluationEndpoint);
+    return new Model("development-eval", "ollama", inputs.evaluationModel(),
+        runtime.primaryEndpoint(), evaluationEndpoint, null);
+  }
+
+  private static void validateTuningRecipe(Path path) {
+    try {
+      if (!Files.isRegularFile(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+          || Files.isSymbolicLink(path)) {
+        throw new IllegalArgumentException("development tuning recipe is missing");
+      }
+      byte[] bytes = Files.readAllBytes(path);
+      String text = new String(bytes, StandardCharsets.UTF_8);
+      if (bytes.length == 0
+          || !java.util.Arrays.equals(bytes, text.getBytes(StandardCharsets.UTF_8))
+          || text.startsWith("\uFEFF")
+          || text.contains("\r")
+          || !text.endsWith("\n")
+          || text.lines().filter(line -> line.equals("FROM qwen2.5:3b")).count() != 1
+          || !text.contains("MESSAGE user ")
+          || !text.contains("MESSAGE assistant ")
+          || text.contains("ANTHROPIC_API_KEY")
+          || text.contains("ADAPTER ")) {
+        throw new IllegalArgumentException("development tuning recipe is invalid");
+      }
+    } catch (IllegalArgumentException failure) {
+      throw failure;
+    } catch (Exception failure) {
+      throw new IllegalArgumentException("development tuning recipe is missing", failure);
+    }
   }
 
   private static Map<String, String> renderedEnvironment(String yaml) {
@@ -526,14 +546,18 @@ record MentorReleaseEvalManifest(
   private record ReleaseArtifacts(String sharedCoordinate, String sharedArtifactSha256,
                                   String bootJarSha256,
                                   String runtimeDependencyGraphSha256,
-                                  String bootLibraryGraphSha256) {}
+                                   String bootLibraryGraphSha256) {}
+
+  private record RuntimeModels(String primaryModel, List<String> fallbackModels,
+                               String primaryEndpoint) {}
 
   record Inputs(String releaseId, String sourceRevision, String checkedOutSourceRevision,
                 String gitOpsRevision,
-                Path renderedConfig, Path applicationConfig, Path fixture,
-                List<MentorGoldenCase> cases, MentorPromptBuilder prompts,
-                Map<String, String> evaluationEndpoints,
-                Path bootJar, Path sharedArtifact, Path dependencyGraph,
+                 Path renderedConfig, Path applicationConfig, Path fixture,
+                 List<MentorGoldenCase> cases, MentorPromptBuilder prompts,
+                 Map<String, String> evaluationEndpoints,
+                 String evaluationModel, Path tuningRecipe,
+                 Path bootJar, Path sharedArtifact, Path dependencyGraph,
                 Path currentDependencyGraph, Path bootLibraryGraph, Path gradleProperties) {
 
     static Inputs fromEnvironment(Map<String, String> environment) {
@@ -552,6 +576,9 @@ record MentorReleaseEvalManifest(
               "MENTOR_EVAL_FIXTURE", "src/test/resources/eval/golden-mentor-injection.jsonl"))),
           new MentorPromptBuilder(),
           evaluationEndpoints(environment),
+          environment.getOrDefault("MENTOR_EVAL_MODEL", DEVELOPMENT_MODEL),
+          Path.of(environment.getOrDefault("MENTOR_EVAL_TUNING_RECIPE",
+              "src/test/resources/eval/mentor-development-tuning-v1.Modelfile")),
           Path.of(requiredEnvironment(environment, "MENTOR_EVAL_BOOT_JAR")),
           Path.of(requiredEnvironment(environment, "MENTOR_EVAL_SHARED_ARTIFACT")),
           Path.of(requiredEnvironment(environment, "MENTOR_EVAL_DEPENDENCY_GRAPH")),
@@ -574,17 +601,25 @@ record MentorReleaseEvalManifest(
             "declared source revision does not match checked-out source");
       }
       if (cases == null || cases.isEmpty() || prompts == null
+          || renderedConfig == null || applicationConfig == null || fixture == null
           || evaluationEndpoints == null || evaluationEndpoints.isEmpty()
+          || evaluationModel == null || evaluationModel.isBlank() || tuningRecipe == null
           || bootJar == null || sharedArtifact == null || dependencyGraph == null
           || currentDependencyGraph == null || bootLibraryGraph == null
           || gradleProperties == null) {
         throw new IllegalArgumentException("release fixture and prompt are required");
+      }
+      if (fixture.toAbsolutePath().normalize().equals(
+          tuningRecipe.toAbsolutePath().normalize())) {
+        throw new IllegalArgumentException(
+            "development tuning recipe must remain separate from the golden fixture");
       }
     }
 
     Inputs withCheckedOutSourceRevision(String value) {
       return new Inputs(releaseId, sourceRevision, value, gitOpsRevision, renderedConfig,
           applicationConfig, fixture, cases, prompts, evaluationEndpoints,
+          evaluationModel, tuningRecipe,
           bootJar, sharedArtifact, dependencyGraph, currentDependencyGraph, bootLibraryGraph,
           gradleProperties);
     }
@@ -592,8 +627,16 @@ record MentorReleaseEvalManifest(
     Inputs withEvaluationEndpoints(Map<String, String> value) {
       return new Inputs(releaseId, sourceRevision, checkedOutSourceRevision, gitOpsRevision,
           renderedConfig, applicationConfig, fixture, cases, prompts, Map.copyOf(value),
+          evaluationModel, tuningRecipe,
           bootJar, sharedArtifact, dependencyGraph, currentDependencyGraph, bootLibraryGraph,
           gradleProperties);
+    }
+
+    Inputs withTuningRecipe(Path value) {
+      return new Inputs(releaseId, sourceRevision, checkedOutSourceRevision, gitOpsRevision,
+          renderedConfig, applicationConfig, fixture, cases, prompts, evaluationEndpoints,
+          evaluationModel, value, bootJar, sharedArtifact, dependencyGraph,
+          currentDependencyGraph, bootLibraryGraph, gradleProperties);
     }
 
     private static Map<String, String> evaluationEndpoints(Map<String, String> environment) {
