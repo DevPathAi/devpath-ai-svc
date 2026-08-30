@@ -222,6 +222,8 @@ jobs:
           OLLAMA_IMAGE: ollama/ollama:0.32.5@sha256:98c19ced6600f2924e80b92d701cd867d8f7ef0c4dde516c619484e31e47f103
           OLLAMA_MODEL: qwen2.5:3b
           EXPECTED_OLLAMA_MODEL_DIGEST: 357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b
+          MENTOR_EVAL_MODEL: devpath-mentor-eval:mentor-development-tuning-v1
+          MENTOR_EVAL_TUNING_RECIPE: src/test/resources/eval/mentor-development-tuning-v1.Modelfile
         run: |
           set -euo pipefail
           trust_root="${RUNNER_TEMP}/mission-spine-release-eval"
@@ -245,6 +247,19 @@ jobs:
             | if length == 1 then .[0].digest else error("model identity drifted") end
           ' "${trust_root}/ollama-tags.json")"
           test "${actual_model_digest}" = "${EXPECTED_OLLAMA_MODEL_DIGEST}"
+          test -f "${MENTOR_EVAL_TUNING_RECIPE}"
+          docker cp "${MENTOR_EVAL_TUNING_RECIPE}" \
+            mission-spine-eval-ollama:/tmp/mentor-development.Modelfile
+          docker exec mission-spine-eval-ollama \
+            ollama create "${MENTOR_EVAL_MODEL}" \
+              --file /tmp/mentor-development.Modelfile
+          curl --fail --silent --show-error \
+            http://127.0.0.1:11434/api/tags >"${trust_root}/ollama-tags.json"
+          actual_eval_model_digest="$(jq -er --arg model "${MENTOR_EVAL_MODEL}" '
+            [.models[] | select(.name == $model)]
+            | if length == 1 then .[0].digest else error("tuned model identity drifted") end
+          ' "${trust_root}/ollama-tags.json")"
+          [[ "${actual_eval_model_digest}" =~ ^[0-9a-f]{64}$ ]]
 
           openssl req -x509 -newkey rsa:3072 -sha256 -days 1 -nodes \
             -keyout "${trust_root}/ollama-proxy.key" \
@@ -285,11 +300,11 @@ jobs:
                 --cacert "${trust_root}/ollama-proxy.crt" \
                 https://127.0.0.1:11435/api/tags \
                 >"${trust_root}/ollama-tls-tags.json"; then
-              actual_tls_model_digest="$(jq -er --arg model "${OLLAMA_MODEL}" '
+              actual_tls_model_digest="$(jq -er --arg model "${MENTOR_EVAL_MODEL}" '
                 [.models[] | select(.name == $model)]
                 | if length == 1 then .[0].digest else error("model identity drifted") end
               ' "${trust_root}/ollama-tls-tags.json")" || actual_tls_model_digest=''
-              if [[ "${actual_tls_model_digest}" = "${EXPECTED_OLLAMA_MODEL_DIGEST}" ]]; then
+              if [[ "${actual_tls_model_digest}" = "${actual_eval_model_digest}" ]]; then
                 tls_ready=true
                 break
               fi
@@ -311,8 +326,8 @@ jobs:
           MENTOR_EVAL_SOURCE_REVISION: ${{ inputs.ai_source_sha }}
           MENTOR_EVAL_GITOPS_REVISION: ${{ inputs.gitops_source_sha }}
           MENTOR_EVAL_RENDERED_CONFIG: ${{ runner.temp }}/mission-spine-release-eval/rendered.yaml
-          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v3.json
-          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v3.json
+          MENTOR_EVAL_MANIFEST: ${{ github.workspace }}/build/release-eval/mentor-release-eval-manifest-v4.json
+          MENTOR_EVAL_EVIDENCE: ${{ github.workspace }}/build/release-eval/mentor-release-eval-evidence-v4.json
           MENTOR_EVAL_BOOT_JAR: ${{ github.workspace }}/build/release-inputs/devpath-ai-svc-0.0.1-SNAPSHOT.jar
           MENTOR_EVAL_SHARED_ARTIFACT: ${{ github.workspace }}/build/release-inputs/devpath-shared-0.0.1-et9.20260816.jar
           MENTOR_EVAL_DEPENDENCY_GRAPH: ${{ github.workspace }}/build/release-inputs/runtime-dependency-graph.txt
@@ -320,7 +335,8 @@ jobs:
           MENTOR_EVAL_BOOT_LIBRARY_GRAPH: ${{ github.workspace }}/build/release-inputs/boot-library-graph.txt
           MENTOR_EVAL_GRADLE_PROPERTIES: ${{ github.workspace }}/gradle.properties
           MENTOR_EVAL_OLLAMA_BASE_URL: https://127.0.0.1:11435
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MENTOR_EVAL_MODEL: devpath-mentor-eval:mentor-development-tuning-v1
+          MENTOR_EVAL_TUNING_RECIPE: src/test/resources/eval/mentor-development-tuning-v1.Modelfile
           JAVA_TOOL_OPTIONS: >-
             -Djavax.net.ssl.trustStore=${{ runner.temp }}/mission-spine-release-eval/mentor-eval-cacerts
             -Djavax.net.ssl.trustStorePassword=changeit

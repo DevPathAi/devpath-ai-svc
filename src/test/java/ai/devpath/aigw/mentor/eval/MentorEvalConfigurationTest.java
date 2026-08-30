@@ -15,7 +15,8 @@ class MentorEvalConfigurationTest {
   @TempDir Path temp;
 
   @Test
-  void legacyIndependentModelPropertiesCannotOverrideRenderedRuntimeModels() throws Exception {
+  void developmentEvaluationUsesOneVersionedOllamaTuningInsteadOfRuntimeProviders()
+      throws Exception {
     Path rendered = rendered();
     Map<String, String> environment = environment(rendered);
     environment.put("mentor.eval.primary-model", "claude/wrong-model");
@@ -24,10 +25,16 @@ class MentorEvalConfigurationTest {
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(
         MentorReleaseEvalManifest.Inputs.fromEnvironment(environment));
 
+    assertThat(manifest.runtimePrimaryModel()).isEqualTo("qwen2.5:3b");
+    assertThat(manifest.runtimeFallbackModels()).containsExactly("claude-sonnet-4-6");
     assertThat(manifest.models()).extracting(MentorReleaseEvalManifest.Model::provider)
-        .containsExactly("ollama", "claude");
+        .containsExactly("ollama");
+    assertThat(manifest.models()).extracting(MentorReleaseEvalManifest.Model::role)
+        .containsExactly("development-eval");
     assertThat(manifest.models()).extracting(MentorReleaseEvalManifest.Model::modelId)
-        .containsExactly("qwen2.5:3b", "claude-sonnet-4-6");
+        .containsExactly("devpath-mentor-eval:mentor-development-tuning-v1");
+    assertThat(manifest.tuningRevision()).isEqualTo("mentor-development-tuning-v1");
+    assertThat(manifest.tuningSha256()).matches("[0-9a-f]{64}");
   }
 
   @Test
@@ -60,28 +67,38 @@ class MentorEvalConfigurationTest {
   }
 
   @Test
-  void missingFallbackCredentialFailsPreflightBeforeAnyModelCall() throws Exception {
+  void developmentEvaluationRequiresNoRemoteProviderCredential() throws Exception {
     Map<String, String> environment = environment(rendered());
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(
         MentorReleaseEvalManifest.Inputs.fromEnvironment(environment));
 
-    assertThatThrownBy(() -> GoldenMentorInjectionEvalTest.validateCredentials(
-        manifest, environment))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("ANTHROPIC_API_KEY")
-        .hasMessageNotContaining("synthetic-secret");
+    GoldenMentorInjectionEvalTest.validateNoRemoteCredentials(manifest);
+    assertThat(manifest.models())
+        .extracting(MentorReleaseEvalManifest.Model::credentialEnv)
+        .containsOnlyNulls();
   }
 
   @Test
-  void credentialedClaudeEndpointCannotBeRedirectedByAnEvalOverride() throws Exception {
+  void remoteClaudeEvalOverrideCannotAddAProviderCall() throws Exception {
     Map<String, String> environment = environment(rendered());
     environment.put("MENTOR_EVAL_CLAUDE_BASE_URL", "https://attacker.example.test");
 
     MentorReleaseEvalManifest manifest = MentorReleaseEvalManifest.create(
         MentorReleaseEvalManifest.Inputs.fromEnvironment(environment));
 
-    assertThat(manifest.models().get(1).evaluationEndpoint())
-        .isEqualTo("https://api.anthropic.com");
+    assertThat(manifest.models()).hasSize(1);
+    assertThat(manifest.models().getFirst().provider()).isEqualTo("ollama");
+  }
+
+  @Test
+  void missingTuningRecipeFailsClosedBeforeAnyModelCall() throws Exception {
+    Map<String, String> environment = environment(rendered());
+    environment.put("MENTOR_EVAL_TUNING_RECIPE", temp.resolve("missing.Modelfile").toString());
+
+    assertThatThrownBy(() -> MentorReleaseEvalManifest.create(
+        MentorReleaseEvalManifest.Inputs.fromEnvironment(environment)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("tuning recipe");
   }
 
   private Map<String, String> environment(Path rendered) {
@@ -92,6 +109,11 @@ class MentorEvalConfigurationTest {
     environment.put("MENTOR_EVAL_GITOPS_REVISION", "b".repeat(40));
     environment.put("MENTOR_EVAL_RENDERED_CONFIG", rendered.toString());
     environment.put("MENTOR_EVAL_OLLAMA_BASE_URL", "https://eval-ollama.example.test");
+    environment.put(
+        "MENTOR_EVAL_MODEL", "devpath-mentor-eval:mentor-development-tuning-v1");
+    environment.put("MENTOR_EVAL_TUNING_RECIPE",
+        Path.of("src/test/resources/eval/mentor-development-tuning-v1.Modelfile")
+            .toString());
     MentorReleaseArtifactFixture.addToEnvironment(environment, temp.resolve("release-artifacts"));
     return environment;
   }

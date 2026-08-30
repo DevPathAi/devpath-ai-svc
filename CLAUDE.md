@@ -38,6 +38,7 @@
 - 스택: Spring Boot 4.0.7 · Java 21 · Gradle (Kotlin DSL)
 - 패키지: `ai.devpath.aigw` / 메인: `AiApplication`
 - 모든 LLM 호출은 이 서비스를 경유한다. 현재 dev 구현은 Ollama(`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_GEN_MODEL`, `OLLAMA_TIMEOUT`)를 사용한다. 운영 provider 키(`ANTHROPIC_API_KEY` 등)는 환경 변수로만 주입하고 절대 커밋하지 않는다.
+- 실사용이 아닌 개발·릴리스 평가에서 토큰 낭비를 줄이기 위한 모델 호출은 Claude API를 사용하지 않는다. 버전 고정된 로컬 Ollama 튜닝 모델과 별도 학습 레시피를 사용하며, 운영 런타임의 provider/fallback 구성과 분리한다.
 
 > 이 레포는 [devpath-svc-template](https://github.com/DevPathAi/devpath-svc-template)에서 파생되었다.
 
