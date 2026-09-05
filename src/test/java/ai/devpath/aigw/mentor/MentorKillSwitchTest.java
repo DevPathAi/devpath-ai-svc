@@ -25,7 +25,7 @@ class MentorKillSwitchTest {
   @Test
   void killSwitchReturns503BeforeStream() throws Exception {
     mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"q\"}"))
         .andExpect(status().isServiceUnavailable())
