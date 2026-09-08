@@ -58,7 +58,7 @@ class MentorSseIntegrationTest {
 
     long before = repo.count();
     MvcResult started = mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"비동기란?\"}"))
         .andExpect(request().asyncStarted())
@@ -87,7 +87,7 @@ class MentorSseIntegrationTest {
             org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 
     MvcResult started = mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"비동기란?\"}"))
         .andExpect(request().asyncStarted())
@@ -154,7 +154,7 @@ class MentorSseIntegrationTest {
 
   private String contextualRequest() throws Exception {
     MvcResult started = mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"비동기란?\",\"contextSnapshotId\":23}"))
         .andExpect(request().asyncStarted())
