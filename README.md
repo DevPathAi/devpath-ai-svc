@@ -9,7 +9,7 @@
 | 모듈 | 역할 |
 |------|------|
 | ai-gateway | 현재 dev: Ollama embed/path 생성 위임 · 운영 목표: Claude 등 provider 단일 진입점 |
-| mentor | AI 멘토 채팅 세션 (`POST /ai-mentor/sessions`) — 구현됨 |
+| mentor | AI 멘토 채팅 세션 (`POST /ai-mentor/sessions`) — 서명된 사용자 JWT의 `mentor_access` claim이 정확히 `ACTIVE`일 때만 허용 |
 | review | AI 코드 리뷰 조회/피드백 (`GET /reviews`, `GET /reviews/{id}`, `POST /reviews/{id}/feedback`) — 구현됨. Kafka Consumer 비동기 트리거는 후속(목표) |
 | community | 커뮤니티 AI 시드 답변 생성(Claude/Ollama, `CommunitySeedConsumer`가 Kafka 이벤트 소비) — 구현됨 |
 | finops | 토큰 사용량/비용 집계 (목표) |

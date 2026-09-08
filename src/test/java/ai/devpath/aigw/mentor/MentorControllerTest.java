@@ -29,7 +29,7 @@ class MentorControllerTest {
   @Test
   void streamsSseForAuthenticatedUser() throws Exception {
     MvcResult mvcResult = mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"비동기란?\"}"))
         .andExpect(request().asyncStarted())
@@ -43,9 +43,39 @@ class MentorControllerTest {
   }
 
   @Test
-  void rejectsEmptyMessage() throws Exception {
+  void rejectsAuthenticatedWaitlistedUserBeforeControllerExecution() throws Exception {
+    mvc.perform(post("/ai-mentor/sessions")
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "WAITLISTED")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"message\":\"질문\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(request().asyncNotStarted());
+  }
+
+  @Test
+  void rejectsAuthenticatedUserWithoutMentorAccessClaim() throws Exception {
     mvc.perform(post("/ai-mentor/sessions")
             .with(jwt().jwt(j -> j.subject("42")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"message\":\"질문\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(request().asyncNotStarted());
+  }
+
+  @Test
+  void rejectsAuthenticatedUserWithUnknownMentorAccessClaim() throws Exception {
+    mvc.perform(post("/ai-mentor/sessions")
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "PAUSED")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"message\":\"질문\"}"))
+        .andExpect(status().isForbidden())
+        .andExpect(request().asyncNotStarted());
+  }
+
+  @Test
+  void rejectsEmptyMessage() throws Exception {
+    mvc.perform(post("/ai-mentor/sessions")
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"  \"}"))
         .andExpect(status().isBadRequest())
@@ -66,7 +96,7 @@ class MentorControllerTest {
         .thenThrow(new MentorSnapshotUnavailableException());
 
     mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"질문\",\"contentId\":7,\"contextSnapshotId\":23}"))
         .andExpect(status().isNotFound())
@@ -81,7 +111,7 @@ class MentorControllerTest {
         .thenThrow(new MentorSnapshotServiceUnavailableException());
 
     mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(j -> j.subject("42")))
+            .with(jwt().jwt(j -> j.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"질문\",\"contextSnapshotId\":24}"))
         .andExpect(status().isServiceUnavailable())

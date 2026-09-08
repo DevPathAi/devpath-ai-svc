@@ -32,7 +32,7 @@ class MentorBusyHttpTest {
     when(coordinator.start(42L, "질문", null, null)).thenThrow(new MentorBusyException());
 
     mvc.perform(post("/ai-mentor/sessions")
-            .with(jwt().jwt(token -> token.subject("42")))
+            .with(jwt().jwt(token -> token.subject("42").claim("mentor_access", "ACTIVE")))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"message\":\"질문\"}"))
         .andExpect(status().isTooManyRequests())

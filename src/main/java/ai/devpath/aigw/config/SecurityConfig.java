@@ -13,6 +13,8 @@ import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -51,6 +53,12 @@ public class SecurityConfig {
             .requestMatchers("/internal/**").hasRole("INTERNAL")
             // 기존 Ollama 게이트웨이(/ai/**)는 learning-svc가 호출하는 내부 엔드포인트 — 무인증 유지(pre-C1 동작 보존).
             .requestMatchers("/ai/**").permitAll()
+            .requestMatchers("/ai-mentor/**").access((authentication, context) -> {
+              var current = authentication.get();
+              boolean active = current instanceof JwtAuthenticationToken jwt
+                  && "ACTIVE".equals(jwt.getToken().getClaimAsString("mentor_access"));
+              return new AuthorizationDecision(active);
+            })
             .anyRequest().authenticated())
         .addFilterBefore(internalApiAuthenticationFilter, BearerTokenAuthenticationFilter.class)
         .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()));
