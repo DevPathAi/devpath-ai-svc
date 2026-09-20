@@ -1,0 +1,36 @@
+---
+name: Mission Spine Release Gate Dispatch
+
+'on':
+  push:
+    branches:
+      - automation/dispatch-ms-20260920-community-flat-pages
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch protected AI release evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch AI evaluation as GitHub Actions automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-release-eval.yml/dispatches" \
+            --input - <<'JSON'
+          {
+            "ref": "main",
+            "inputs": {
+              "release_id": "ms-20260920-community-flat-pages",
+              "candidate_spec_sha256": "e12921324ea5a1e325bb8125631aba7a653375d49ad46c5c91ec7031cf2640a7",
+              "ai_source_sha": "54f634b845befc7085e4b974a8b66120bf6c8856",
+              "gitops_source_sha": "69e7bd15570f5ba0f271c83b5bd46955cb249c8e"
+            }
+          }
+          JSON
