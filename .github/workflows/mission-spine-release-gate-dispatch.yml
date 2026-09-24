@@ -1,0 +1,36 @@
+---
+name: Mission Spine Release Gate Dispatch
+
+'on':
+  push:
+    branches:
+      - automation/dispatch-ms-20260923-home-functions-gateway-cors-r3
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch protected AI release evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch AI evaluation as GitHub Actions automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-release-eval.yml/dispatches" \
+            --input - <<'JSON'
+          {
+            "ref": "main",
+            "inputs": {
+              "release_id": "ms-20260923-home-functions-gateway-cors-r3",
+              "candidate_spec_sha256": "06cd05d95d2b380863f7aa8ec023e0eb2831b5344412223037d161a69d763bd2",
+              "ai_source_sha": "54f634b845befc7085e4b974a8b66120bf6c8856",
+              "gitops_source_sha": "5961922b9a309055a75bc7302e5c852c5c51d59c"
+            }
+          }
+          JSON
