@@ -1,0 +1,36 @@
+---
+name: Mission Spine Release Gate Dispatch
+
+'on':
+  push:
+    branches:
+      - automation/dispatch-ms-20260930-s3-web-redesign-r2
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch protected AI release evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch AI evaluation as GitHub Actions automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-release-eval.yml/dispatches" \
+            --input - <<'JSON'
+          {
+            "ref": "main",
+            "inputs": {
+              "release_id": "ms-20260930-s3-web-redesign-r2",
+              "candidate_spec_sha256": "e31285ed135a65466c63b3777b703263ae61ad4d9ac2f2a1c4a1d376d1c17aef",
+              "ai_source_sha": "54f634b845befc7085e4b974a8b66120bf6c8856",
+              "gitops_source_sha": "5427fe1e6e5729309687c0ddec3fc1a8b16683f1"
+            }
+          }
+          JSON
