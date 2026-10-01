@@ -1,12 +1,10 @@
 package ai.devpath.aigw.mentor;
 
+import ai.devpath.aigw.provider.ProviderChain;
 import com.anthropic.client.AnthropicClient;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,31 +41,10 @@ public class MentorClientConfig {
       available.put("claude", new ClaudeMentorClient(anthropic, claudeModel, prompts));
     }
 
-    List<AiMentorClient> chain = orderedChain(provider, fallbackCsv, available);
+    List<AiMentorClient> chain = ProviderChain.ordered(provider, fallbackCsv, available);
     if (chain.isEmpty()) {
       chain = List.of(available.get("mock")); // 안전망: 최소 mock
     }
     return chain.size() == 1 ? chain.get(0) : new FallbackMentorClient(chain);
-  }
-
-  /** provider+fallback 순서로 available에 존재하는 client만, 중복 제거해 반환. */
-  static List<AiMentorClient> orderedChain(String provider, String fallbackCsv,
-      Map<String, AiMentorClient> available) {
-    List<String> order = new ArrayList<>();
-    order.add(provider == null ? "" : provider.trim());
-    if (fallbackCsv != null) {
-      for (String f : fallbackCsv.split(",")) {
-        String t = f.trim();
-        if (!t.isEmpty()) order.add(t);
-      }
-    }
-    List<AiMentorClient> chain = new ArrayList<>();
-    Set<String> seen = new LinkedHashSet<>();
-    for (String name : order) {
-      if (name.isEmpty() || !seen.add(name)) continue;
-      AiMentorClient c = available.get(name);
-      if (c != null) chain.add(c);
-    }
-    return chain;
   }
 }

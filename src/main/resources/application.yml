@@ -36,9 +36,13 @@ devpath:
     timeout: ${SANDBOX_TIMEOUT:PT5S}
   review:
     provider: ${REVIEW_PROVIDER:mock}
+    fallback: ${REVIEW_FALLBACK:}
     # Must exceed the longest configured provider timeout. Expiry recovers a crashed worker.
     processing-lease: ${REVIEW_PROCESSING_LEASE:PT5M}
     ollama-model: ${REVIEW_OLLAMA_MODEL:qwen2.5-coder:7b}
+    # 이 기능의 Ollama 만 다른 주소(예: GPU 노드)로 보낼 수 있다. 값을 주지 않으면 공용 base-url 을 쓴다.
+    # devpath.ollama.path-base-url 과 같은 패턴이다 — 여기에 등록하지 않으면 환경 변수가 조용히 무시된다.
+    ollama-base-url: ${REVIEW_OLLAMA_BASE_URL:${devpath.ollama.base-url}}
     claude-model: ${REVIEW_CLAUDE_MODEL:claude-sonnet-4-6}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
@@ -66,8 +70,11 @@ devpath:
     timeout: ${LCS_TIMEOUT:PT2S}
   community-seed:
     provider: ${COMMUNITY_SEED_PROVIDER:mock}
+    fallback: ${COMMUNITY_SEED_FALLBACK:}
     claude-model: ${COMMUNITY_SEED_CLAUDE_MODEL:claude-haiku-4-5}
     ollama-model: ${COMMUNITY_SEED_OLLAMA_MODEL:qwen2.5:7b}
+    # review 의 ollama-base-url 과 같은 규칙. 미지정이면 공용 base-url.
+    ollama-base-url: ${COMMUNITY_SEED_OLLAMA_BASE_URL:${devpath.ollama.base-url}}
     enabled: ${COMMUNITY_SEED_ENABLED:true}
   learning:
     # 게이트웨이 미경유 내부 호출. 실제 주소는 LEARNING_URI로 주입(learning-svc server.port=8080 실측).
@@ -76,8 +83,15 @@ devpath:
     timeout: ${LEARNING_TIMEOUT:PT5S}
   retention:
     provider: ${RETENTION_PROVIDER:mock}
+    fallback: ${RETENTION_FALLBACK:}
+    ollama-model: ${RETENTION_OLLAMA_MODEL:qwen2.5:7b}
+    # review 의 ollama-base-url 과 같은 규칙. 미지정이면 공용 base-url.
+    ollama-base-url: ${RETENTION_OLLAMA_BASE_URL:${devpath.ollama.base-url}}
     claude-model: ${RETENTION_CLAUDE_MODEL:claude-sonnet-4-6}
     enabled: ${RETENTION_ENABLED:true}
+  provider:
+    # 기한이 지난 래치를 배경에서 탐색하는 주기. 사용자 요청은 탐색에 쓰지 않는다(스펙 §3.1).
+    probe-interval: ${PROVIDER_PROBE_INTERVAL:PT1M}
 
 management:
   endpoints:

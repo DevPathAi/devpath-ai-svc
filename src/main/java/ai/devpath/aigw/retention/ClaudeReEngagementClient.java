@@ -3,13 +3,7 @@ package ai.devpath.aigw.retention;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.errors.AnthropicException;
 import com.anthropic.models.messages.MessageCreateParams;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
-@Component
-@ConditionalOnProperty(name = "devpath.retention.provider", havingValue = "claude")
 public class ClaudeReEngagementClient implements ReEngagementSuggestionClient {
 
 	private final AnthropicClient client;
@@ -17,8 +11,8 @@ public class ClaudeReEngagementClient implements ReEngagementSuggestionClient {
 	private final ReEngagementPromptBuilder prompts;
 
 	public ClaudeReEngagementClient(
-			@Qualifier("retentionAnthropicClient") AnthropicClient client,
-			@Value("${devpath.retention.claude-model:claude-sonnet-4-6}") String model,
+			AnthropicClient client,
+			String model,
 			ReEngagementPromptBuilder prompts) {
 		this.client = client;
 		this.model = model;

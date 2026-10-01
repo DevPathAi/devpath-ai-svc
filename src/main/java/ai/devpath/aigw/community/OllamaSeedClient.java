@@ -5,9 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -15,8 +13,6 @@ import org.springframework.web.client.RestClientException;
  * dev 커뮤니티 시드 클라이언트(Ollama, /api/chat stream:false 자유 텍스트 답변).
  * 질문은 SeedPromptBuilder가 &lt;user_question&gt; 델리미터로 격리(인젝션 방어).
  */
-@Component
-@ConditionalOnProperty(name = "devpath.community-seed.provider", havingValue = "ollama")
 public class OllamaSeedClient implements AiSeedClient {
 
   private final RestClient restClient;

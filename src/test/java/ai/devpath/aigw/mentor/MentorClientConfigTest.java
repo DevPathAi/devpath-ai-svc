@@ -1,5 +1,6 @@
 package ai.devpath.aigw.mentor;
 
+import ai.devpath.aigw.provider.ProviderChain;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.LinkedHashMap;
@@ -29,35 +30,35 @@ class MentorClientConfigTest {
 
   @Test
   void fullChain_ollamaClaudeMock() {
-    var chain = MentorClientConfig.orderedChain(
+    var chain = ProviderChain.ordered(
         "ollama", "claude,mock", available("ollama", "claude", "mock"));
     assertThat(names(chain)).containsExactly("ollama", "claude", "mock");
   }
 
   @Test
   void claudeUnavailable_isFilteredOut() {
-    var chain = MentorClientConfig.orderedChain(
+    var chain = ProviderChain.ordered(
         "ollama", "claude,mock", available("ollama", "mock")); // claude 없음(무키)
     assertThat(names(chain)).containsExactly("ollama", "mock");
   }
 
   @Test
   void singleProvider_emptyFallback() {
-    var chain = MentorClientConfig.orderedChain(
+    var chain = ProviderChain.ordered(
         "mock", "", available("ollama", "mock"));
     assertThat(names(chain)).containsExactly("mock");
   }
 
   @Test
   void deduplicatesPreservingOrder() {
-    var chain = MentorClientConfig.orderedChain(
+    var chain = ProviderChain.ordered(
         "ollama", "ollama, mock", available("ollama", "mock"));
     assertThat(names(chain)).containsExactly("ollama", "mock");
   }
 
   @Test
   void unknownPrimary_fallsToAvailableFallback() {
-    var chain = MentorClientConfig.orderedChain(
+    var chain = ProviderChain.ordered(
         "claude", "mock", available("ollama", "mock")); // claude 없음
     assertThat(names(chain)).containsExactly("mock");
   }

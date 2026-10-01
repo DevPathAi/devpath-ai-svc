@@ -224,27 +224,33 @@ class MentorExecutionCoordinatorTest {
     }).when(service).streamAnswer(anyString(), any(), any());
     MentorExecutionCoordinator coordinator = new MentorExecutionCoordinator(
         service, persistence, workExecutor, scheduler,
-        new MentorTimeoutPolicy(Duration.ofMillis(20), Duration.ofMillis(80),
-            Duration.ofMillis(250)), JsonMapper.builder().build(), dispatcher);
+        // ★이 테스트의 시간값은 계약이 아니다★ — 검증 대상은 「차단된 self emitter 가 durable
+        // 타임아웃 취소와 admission 해제를 지연시키지 못한다」이고 절대 밀리초와 무관하다.
+        // 20ms(provider)는 CI 러너에서 workExecutor 기동 지연보다 짧아, 작업이 sendToken 에
+        // 진입하기 전에 타임아웃이 먼저 발동했다 → tokenSendEntered 가 끝내 내려가지 않아
+        // 아래 await 가 실패한다(2026-10-02 실측: ubuntu 러너 2회 연속, 로컬은 5/5 통과 =
+        // 간헐 flake 가 아니라 환경 의존). 기동 지연을 흡수하도록 전부 5배로 둔다.
+        new MentorTimeoutPolicy(Duration.ofMillis(100), Duration.ofMillis(400),
+            Duration.ofMillis(1250)), JsonMapper.builder().build(), dispatcher);
 
     coordinator.start(1L, "blocked-self", null, approvedContext(), emitter);
-    assertThat(tokenSendEntered.await(1, TimeUnit.SECONDS)).isTrue();
+    assertThat(tokenSendEntered.await(5, TimeUnit.SECONDS)).isTrue();
     // 작업 스레드 기동이 첫 하트비트(provider/2)보다 늦으면 차단 전에 정당한 keepalive 가
     // 배달될 수 있다(CI 부하에서 실측된 flake). 계약은 「차단 중·종결 후 무배달」이므로
     // 차단 진입 시점을 기준선으로 삼는다 — 하트비트 전송은 transport 로 직렬화되어
     // 이 시점 이후 관측값 증가는 곧 억제 실패다.
     int heartbeatsBeforeBlock = emitter.heartbeatAttempts.get();
 
-    verify(persistence, timeout(500)).saveFailed(1L, "blocked-self", null, "",
+    verify(persistence, timeout(2500)).saveFailed(1L, "blocked-self", null, "",
         CONTEXT_ENVELOPE, "[]", null, "AI_TIMEOUT");
-    assertThat(workInterrupted.await(500, TimeUnit.MILLISECONDS)).isTrue();
-    assertThat(queuedTokenDiscarded.await(500, TimeUnit.MILLISECONDS)).isTrue();
-    await().atMost(Duration.ofMillis(500)).untilAsserted(() ->
+    assertThat(workInterrupted.await(2500, TimeUnit.MILLISECONDS)).isTrue();
+    assertThat(queuedTokenDiscarded.await(2500, TimeUnit.MILLISECONDS)).isTrue();
+    await().atMost(Duration.ofMillis(2500)).untilAsserted(() ->
         assertThat(dispatcher.availableReservations()).isEqualTo(1));
     assertThat(emitter.terminalAttempts.get()).isZero();
 
     releaseTokenSend.countDown();
-    await().atMost(Duration.ofMillis(500))
+    await().atMost(Duration.ofMillis(2500))
         .untilAsserted(() -> assertThat(emitter.terminalAttempts.get()).isEqualTo(1));
     assertThat(emitter.queuedTokenAttempts.get()).isZero();
     assertThat(emitter.heartbeatAttempts.get()).isEqualTo(heartbeatsBeforeBlock);
