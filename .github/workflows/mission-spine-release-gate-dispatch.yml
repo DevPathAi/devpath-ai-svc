@@ -28,7 +28,7 @@ jobs:
             "ref": "main",
             "inputs": {
               "release_id": "ms-20261002-ai-provider-fallback-gpu7b",
-              "candidate_spec_sha256": "ef51e3ef8f71decfdebfbe5b4dbb1e3b7d7edc989265b9ce7c5595bee0407e0f",
+              "candidate_spec_sha256": "3423b8be5cde26420ed34f040447ce8db1ef516c7057ab76db7b57e5891a58a2",
               "ai_source_sha": "83cfe792201b472aa97e0a2ce03aea79c23f483d",
               "gitops_source_sha": "eb413814c9a813d84b8e1b2c7f5d69979b18bb02"
             }
