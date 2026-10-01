@@ -23,7 +23,8 @@ public class CommunitySeedClientConfig {
   public AiSeedClient seedClient(
       @Value("${devpath.community-seed.provider:mock}") String provider,
       @Value("${devpath.community-seed.fallback:}") String fallbackCsv,
-      @Value("${devpath.ollama.base-url:http://localhost:11434}") String ollamaBaseUrl,
+      @Value("${devpath.community-seed.ollama-base-url:${devpath.ollama.base-url:http://localhost:11434}}")
+      String ollamaBaseUrl,
       @Value("${devpath.community-seed.ollama-model:qwen2.5:7b}") String ollamaModel,
       @Value("${devpath.community-seed.ollama-timeout:PT60S}") Duration ollamaTimeout,
       @Value("${devpath.community-seed.claude-model:claude-haiku-4-5}") String claudeModel,

@@ -26,7 +26,8 @@ public class ReviewClientConfig {
   public AiReviewClient reviewClient(
       @Value("${devpath.review.provider:mock}") String provider,
       @Value("${devpath.review.fallback:}") String fallbackCsv,
-      @Value("${devpath.ollama.base-url:http://localhost:11434}") String ollamaBaseUrl,
+      @Value("${devpath.review.ollama-base-url:${devpath.ollama.base-url:http://localhost:11434}}")
+      String ollamaBaseUrl,
       @Value("${devpath.review.ollama-model:qwen2.5-coder:7b}") String ollamaModel,
       @Value("${devpath.review.ollama-timeout:PT60S}") Duration ollamaTimeout,
       @Value("${devpath.review.claude-model:claude-sonnet-4-6}") String claudeModel,

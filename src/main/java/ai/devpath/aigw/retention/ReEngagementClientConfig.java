@@ -22,7 +22,8 @@ public class ReEngagementClientConfig {
 	public ReEngagementSuggestionClient reEngagementClient(
 			@Value("${devpath.retention.provider:mock}") String provider,
 			@Value("${devpath.retention.fallback:}") String fallbackCsv,
-			@Value("${devpath.ollama.base-url:http://localhost:11434}") String ollamaBaseUrl,
+			@Value("${devpath.retention.ollama-base-url:${devpath.ollama.base-url:http://localhost:11434}}")
+			String ollamaBaseUrl,
 			@Value("${devpath.retention.ollama-model:qwen2.5:7b}") String ollamaModel,
 			@Value("${devpath.retention.ollama-timeout:PT60S}") Duration ollamaTimeout,
 			@Value("${devpath.retention.claude-model:claude-sonnet-4-6}") String claudeModel,
