@@ -1,6 +1,5 @@
 package ai.devpath.aigw.community;
 
-
 /** 외부 LLM 없는 결정적 시드 답변(CI/test/미설정 dev 기본). 방향 제시 수준 고정 초안. */
 public class MockSeedClient implements AiSeedClient {
 

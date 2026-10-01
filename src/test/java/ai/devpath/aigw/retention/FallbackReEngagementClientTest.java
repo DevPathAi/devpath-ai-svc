@@ -60,10 +60,10 @@ class FallbackReEngagementClientTest {
 	@Test
 	void movesToTheNextProviderWhenThePrimaryFails() {
 		ProviderLatch latch = latch();
-		Stub claude = new Stub("claude", status(429, "Too Many Requests"), null);
+		Stub claude = new Stub("CLAUDE", status(429, "Too Many Requests"), null);
 
 		assertEquals("from ollama",
-				chain(latch, claude, new Stub("ollama", null, "from ollama")).suggest(INPUT));
+				chain(latch, claude, new Stub("OLLAMA", null, "from ollama")).suggest(INPUT));
 		assertEquals(1, claude.calls);
 		assertTrue(latch.isOpen("retention", "claude"));
 	}
@@ -72,10 +72,10 @@ class FallbackReEngagementClientTest {
 	void skipsAProviderWhoseLatchIsOpenWithoutCallingIt() {
 		ProviderLatch latch = latch();
 		latch.recordFailure("retention", "claude", FailureKind.AUTH, null);
-		Stub claude = new Stub("claude", null, "never");
+		Stub claude = new Stub("CLAUDE", null, "never");
 
 		assertEquals("from ollama",
-				chain(latch, claude, new Stub("ollama", null, "from ollama")).suggest(INPUT));
+				chain(latch, claude, new Stub("OLLAMA", null, "from ollama")).suggest(INPUT));
 		assertEquals(0, claude.calls);
 	}
 
@@ -85,7 +85,7 @@ class FallbackReEngagementClientTest {
 
 		assertThrows(RuntimeException.class,
 				() -> chain(latch,
-						new Stub("claude", new ReEngagementGenerationException("blank", null), null))
+						new Stub("CLAUDE", new ReEngagementGenerationException("blank", null), null))
 						.suggest(INPUT));
 
 		assertFalse(latch.isOpen("retention", "claude"));
@@ -98,7 +98,7 @@ class FallbackReEngagementClientTest {
 		latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
 
 		assertThrows(ReEngagementGenerationException.class,
-				() -> chain(latch, new Stub("claude", null, "x"), new Stub("ollama", null, "y"))
+				() -> chain(latch, new Stub("CLAUDE", null, "x"), new Stub("OLLAMA", null, "y"))
 						.suggest(INPUT));
 	}
 
@@ -106,11 +106,11 @@ class FallbackReEngagementClientTest {
 	void reportsTheProviderThatActuallyServed() {
 		ProviderLatch latch = latch();
 		FallbackReEngagementClient client = chain(latch,
-				new Stub("claude", status(429, "Too Many Requests"), null),
-				new Stub("ollama", null, "ok"));
+				new Stub("CLAUDE", status(429, "Too Many Requests"), null),
+				new Stub("OLLAMA", null, "ok"));
 
 		client.suggest(INPUT);
 
-		assertEquals("ollama", client.providerName());
+		assertEquals("OLLAMA", client.providerName());
 	}
 }

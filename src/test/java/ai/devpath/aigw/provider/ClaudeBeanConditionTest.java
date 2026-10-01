@@ -6,9 +6,6 @@ import ai.devpath.aigw.community.CommunitySeedClaudeConfig;
 import ai.devpath.aigw.retention.RetentionClaudeClientConfig;
 import ai.devpath.aigw.review.ClaudeClientConfig;
 import com.anthropic.client.AnthropicClient;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -59,26 +56,9 @@ class ClaudeBeanConditionTest {
         });
   }
 
-  @Test
-  void disablesSdkInternalRetriesSoTheLatchSeesTheRealFailure() {
-    // SDK 기본 재시도는 429 를 삼켜 ProviderLatch 의 rate_limit 판정을 왜곡한다(스펙 보정 §D-②).
-    for (String relative : new String[] {
-        "review/ClaudeClientConfig.java",
-        "community/CommunitySeedClaudeConfig.java",
-        "retention/RetentionClaudeClientConfig.java"}) {
-      String source = sourceOf(relative);
-      assertThat(source).as(relative).contains("maxRetries(0)");
-      assertThat(source).as(relative).doesNotContain("fromEnv()");
-      assertThat(source).as(relative).contains("ConditionalOnExpression");
-      assertThat(source).as(relative).doesNotContain("ConditionalOnProperty");
-    }
-  }
-
-  private static String sourceOf(String relative) {
-    try {
-      return Files.readString(Path.of("src/main/java/ai/devpath/aigw", relative));
-    } catch (IOException e) {
-      throw new AssertionError("설정 소스를 읽을 수 없다: " + relative, e);
-    }
-  }
+  // 「maxRetries(0) 가 소스에 있는가」를 Files.readString 으로 보던 검사는 지웠다(리뷰 M2):
+  // 주석 안의 문자열도 통과시켰고, 상대경로가 Gradle 작업 디렉터리에 의존했으며, 무엇보다
+  // 그 값은 이제 조건부다. 대체는 행동 검증이다 —
+  //   재시도 예산: ClaudeRetryBudgetTest(MockWebServer 가 실제 요청 횟수를 센다)
+  //   빈 조건:     위의 두 테스트(키만으로 생기고, 키가 없으면 안 생긴다)
 }

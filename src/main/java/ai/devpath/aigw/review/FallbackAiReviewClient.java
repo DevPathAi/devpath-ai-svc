@@ -1,6 +1,7 @@
 package ai.devpath.aigw.review;
 
 import ai.devpath.aigw.provider.ProviderFailures;
+import ai.devpath.aigw.provider.ProviderFeatures;
 import ai.devpath.aigw.provider.ProviderLatch;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -13,7 +14,7 @@ import java.util.Map;
  */
 public class FallbackAiReviewClient implements AiReviewClient {
 
-  private static final String FEATURE = "review";
+  private static final String FEATURE = ProviderFeatures.REVIEW;
 
   private final LinkedHashMap<String, AiReviewClient> delegates;
   private final ProviderLatch latch;
@@ -30,14 +31,21 @@ public class FallbackAiReviewClient implements AiReviewClient {
 
   @Override
   public ReviewResult review(ReviewInput input) {
+    // 들어올 때 비운다 — 풀 워커 스레드에 직전 요청의 값이 남아 있으면 이번 요청의
+    // 기록이 그 값을 제 것으로 발행한다(FallbackMentorClient 와 같은 수명 관리).
+    served.remove();
     RuntimeException last = null;
     for (Map.Entry<String, AiReviewClient> e : delegates.entrySet()) {
       String name = e.getKey();
       if (latch.isOpen(FEATURE, name)) continue;
+      AiReviewClient delegate = e.getValue();
+      // 체인 키(소문자)가 아니라 구현체가 스스로 말하는 이름(대문자)을 기록한다 —
+      // 이 값이 그대로 저장·발행되고, 그 자리엔 이미 대문자가 들어 있다.
+      // 호출 **전에** 기록하므로 전부 실패해도 마지막으로 시도한 provider 가 남는다.
+      served.set(delegate.providerName());
       try {
-        ReviewResult result = e.getValue().review(input);
+        ReviewResult result = delegate.review(input);
         latch.recordSuccess(FEATURE, name);
-        served.set(name);
         return result;
       } catch (RuntimeException ex) {
         ProviderFailures.Classified c = ProviderFailures.classify(ex);
@@ -53,6 +61,9 @@ public class FallbackAiReviewClient implements AiReviewClient {
   @Override
   public String providerName() {
     String s = served.get();
-    return s != null ? s : delegates.keySet().iterator().next();
+    // 한 번 읽으면 비운다 — 호출 측이 읽지 않고 끝난 요청의 값이 스레드에 남아
+    // 다음 요청의 기록을 오염시키는 것을 막는다(FallbackMentorClient 와 같은 규약).
+    served.remove();
+    return s != null ? s : delegates.values().iterator().next().providerName();
   }
 }

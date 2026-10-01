@@ -3,8 +3,6 @@ package ai.devpath.aigw.community;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.errors.AnthropicException;
 import com.anthropic.models.messages.MessageCreateParams;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 
 /**
  * 운영 커뮤니티 시드 클라이언트(Anthropic Claude, 비스트리밍 자유 텍스트).
@@ -18,8 +16,8 @@ public class ClaudeSeedClient implements AiSeedClient {
   private final SeedPromptBuilder prompts;
 
   public ClaudeSeedClient(
-      @Qualifier("communitySeedAnthropicClient") AnthropicClient client,
-      @Value("${devpath.community-seed.claude-model:claude-haiku-4-5}") String model,
+      AnthropicClient client,
+      String model,
       SeedPromptBuilder prompts) {
     this.client = client;
     this.model = model;

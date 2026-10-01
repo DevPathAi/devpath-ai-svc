@@ -1,6 +1,5 @@
 package ai.devpath.aigw.retention;
 
-
 /** 고정 문구(테스트·로컬·LLM 실패 폴백 공용). 요약이 있으면 살짝 개인화. */
 public class MockReEngagementClient implements ReEngagementSuggestionClient {
 

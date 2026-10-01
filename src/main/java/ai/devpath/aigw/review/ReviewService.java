@@ -88,10 +88,13 @@ public class ReviewService {
     ReviewResult result;
     String provider;
     try {
-      provider = aiReviewClient.providerName();
       result = aiReviewClient.review(new ReviewInput(
           session.language(), session.submittedCode(),
           session.stdout(), session.stderr(), session.exitCode()));
+      // providerName() 은 review() **뒤에** 읽는다. 폴백 체인은 호출이 끝나야 누가 응답했는지
+      // 알고(FallbackAiReviewClient), 순서를 뒤집으면 폴백이 일어난 바로 그 경우에 체인 머리가
+      // 기록된다 — 이 기능이 존재하는 유일한 이유인 그 경우에 기록이 틀린다.
+      provider = aiReviewClient.providerName();
     } catch (TransientReviewException e) {
       if (persistence.releaseForRetry(claim)) throw e;
       return persistence.dispositionForDeniedClaim(

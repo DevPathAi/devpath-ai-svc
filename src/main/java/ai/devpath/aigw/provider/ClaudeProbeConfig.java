@@ -23,20 +23,20 @@ public class ClaudeProbeConfig {
   public ProviderProbe reviewClaudeProbe(
       @Qualifier("anthropicClient") ObjectProvider<AnthropicClient> client,
       @Value("${devpath.review.claude-model:claude-sonnet-4-6}") String model) {
-    return new ClaudeProviderProbe("review", client.getObject(), model);
+    return new ClaudeProviderProbe(ProviderFeatures.REVIEW, client.getObject(), model);
   }
 
   @Bean
   public ProviderProbe communitySeedClaudeProbe(
       @Qualifier("communitySeedAnthropicClient") ObjectProvider<AnthropicClient> client,
       @Value("${devpath.community-seed.claude-model:claude-haiku-4-5}") String model) {
-    return new ClaudeProviderProbe("community-seed", client.getObject(), model);
+    return new ClaudeProviderProbe(ProviderFeatures.COMMUNITY_SEED, client.getObject(), model);
   }
 
   @Bean
   public ProviderProbe retentionClaudeProbe(
       @Qualifier("retentionAnthropicClient") ObjectProvider<AnthropicClient> client,
       @Value("${devpath.retention.claude-model:claude-sonnet-4-6}") String model) {
-    return new ClaudeProviderProbe("retention", client.getObject(), model);
+    return new ClaudeProviderProbe(ProviderFeatures.RETENTION, client.getObject(), model);
   }
 }

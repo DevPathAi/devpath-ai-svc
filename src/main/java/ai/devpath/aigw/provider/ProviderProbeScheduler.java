@@ -38,9 +38,19 @@ public class ProviderProbeScheduler {
             due.feature(), due.provider());
       } catch (RuntimeException e) {
         ProviderFailures.Classified c = ProviderFailures.classify(e);
-        latch.recordFailure(due.feature(), due.provider(), c.kind(), c.retryAfter());
-        log.info("provider latch stays open: feature={} provider={} kind={} reason={}",
-            due.feature(), due.provider(), c.kind(), e.toString());
+        // recordFailure 가 아니라 recordProbeFailure 다 — 탐색은 사용자 트래픽이 아니라서
+        // TRANSIENT 의 「3연속」 게이트를 적용하지 않고, 내용 실패면 탐색을 포기한다.
+        boolean stillOpen = latch.recordProbeFailure(
+            due.feature(), due.provider(), c.kind(), c.retryAfter());
+        if (stillOpen) {
+          log.info("provider latch stays open: feature={} provider={} kind={} reason={}",
+              due.feature(), due.provider(), c.kind(), e.toString());
+        } else {
+          // 열려 있다고 적지 않는다 — 실제로 닫혀 있고, 이 항목은 더 이상 탐색하지 않는다.
+          log.warn("provider probe gave up (content failure, latch not blocking):"
+                  + " feature={} provider={} kind={} reason={}",
+              due.feature(), due.provider(), c.kind(), e.toString());
+        }
       }
     }
   }

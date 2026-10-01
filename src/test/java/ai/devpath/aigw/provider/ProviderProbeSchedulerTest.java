@@ -121,6 +121,11 @@ class ProviderProbeSchedulerTest {
     assertEquals(1, failing.pings);
     assertEquals(1, healthy.pings);
     assertFalse(latch.isOpen("retention", "claude"));
+    // 실패한 쪽의 래치도 단언한다. IllegalStateException 은 OUTPUT_INVALID 로 분류되므로
+    // 막지 않는 것이 맞고(내용 실패), **다시 탐색 대상으로 남지도 않아야** 한다 —
+    // 남으면 스케줄러가 1분마다 영원히 핑한다.
+    assertFalse(latch.isOpen("review", "claude"));
+    assertEquals(List.of(), latch.dueProbes());
   }
 
   @Test

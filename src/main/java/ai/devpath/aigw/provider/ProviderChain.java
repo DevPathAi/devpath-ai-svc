@@ -19,18 +19,8 @@ public final class ProviderChain {
 
   /** provider + fallback CSV 순서로, available 에 존재하는 것만, 중복 제거해 반환한다. */
   public static <T> List<T> ordered(String provider, String fallbackCsv, Map<String, T> available) {
-    List<String> order = new ArrayList<>();
-    order.add(provider == null ? "" : provider.trim());
-    if (fallbackCsv != null) {
-      for (String f : fallbackCsv.split(",")) {
-        String t = f.trim();
-        if (!t.isEmpty()) order.add(t);
-      }
-    }
     List<T> chain = new ArrayList<>();
-    Set<String> seen = new LinkedHashSet<>();
-    for (String name : order) {
-      if (name.isEmpty() || !seen.add(name)) continue;
+    for (String name : requestedNames(provider, fallbackCsv)) {
       T c = available.get(name);
       if (c != null) chain.add(c);
     }
@@ -43,12 +33,39 @@ public final class ProviderChain {
    */
   public static <T> LinkedHashMap<String, T> orderedMap(
       String provider, String fallbackCsv, Map<String, T> available) {
-    LinkedHashMap<String, String> identity = new LinkedHashMap<>();
-    for (String name : available.keySet()) identity.put(name, name);
     LinkedHashMap<String, T> chain = new LinkedHashMap<>();
-    for (String name : ordered(provider, fallbackCsv, identity)) {
-      chain.put(name, available.get(name));
+    for (String name : requestedNames(provider, fallbackCsv)) {
+      T c = available.get(name);
+      if (c != null) chain.put(name, c);
     }
     return chain;
+  }
+
+  /**
+   * provider + fallback 이 <b>지정한</b> provider 개수(공백·중복 제거). 가용 여부는 보지 않는다 —
+   * 「체인을 운영할 의도인가」만 묻는 자리에서 쓴다. 가용 목록을 아직 만들 수 없는 곳
+   * (예: 그 가용 목록의 재료인 {@code AnthropicClient} 빈 정의)에서도 답을 낼 수 있어야 한다.
+   */
+  public static int requestedCount(String provider, String fallbackCsv) {
+    return requestedNames(provider, fallbackCsv).size();
+  }
+
+  /** provider 를 맨 앞에 두고 fallback CSV 를 이어 붙인 뒤 공백·빈 값·중복을 제거한 순서. */
+  private static List<String> requestedNames(String provider, String fallbackCsv) {
+    List<String> order = new ArrayList<>();
+    order.add(provider == null ? "" : provider.trim());
+    if (fallbackCsv != null) {
+      for (String f : fallbackCsv.split(",")) {
+        String t = f.trim();
+        if (!t.isEmpty()) order.add(t);
+      }
+    }
+    List<String> names = new ArrayList<>();
+    Set<String> seen = new LinkedHashSet<>();
+    for (String name : order) {
+      if (name.isEmpty() || !seen.add(name)) continue;
+      names.add(name);
+    }
+    return names;
   }
 }

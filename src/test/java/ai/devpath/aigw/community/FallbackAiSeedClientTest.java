@@ -59,18 +59,18 @@ class FallbackAiSeedClientTest {
   @Test
   void movesToTheNextProviderWhenThePrimaryFails() {
     ProviderLatch latch = latch();
-    Stub claude = new Stub("claude", status(401, "Unauthorized"), null);
+    Stub claude = new Stub("CLAUDE", status(401, "Unauthorized"), null);
 
     assertEquals("from ollama",
-        chain(latch, claude, new Stub("ollama", null, "from ollama")).generate(INPUT).content());
+        chain(latch, claude, new Stub("OLLAMA", null, "from ollama")).generate(INPUT).content());
     assertEquals(1, claude.calls);
   }
 
   @Test
   void opensTheLatchOnAnAuthFailure() {
     ProviderLatch latch = latch();
-    chain(latch, new Stub("claude", status(401, "Unauthorized"), null),
-                 new Stub("ollama", null, "ok")).generate(INPUT);
+    chain(latch, new Stub("CLAUDE", status(401, "Unauthorized"), null),
+                 new Stub("OLLAMA", null, "ok")).generate(INPUT);
 
     assertTrue(latch.isOpen("community-seed", "claude"));
   }
@@ -79,10 +79,10 @@ class FallbackAiSeedClientTest {
   void skipsAProviderWhoseLatchIsOpenWithoutCallingIt() {
     ProviderLatch latch = latch();
     latch.recordFailure("community-seed", "claude", FailureKind.AUTH, null);
-    Stub claude = new Stub("claude", null, "never");
+    Stub claude = new Stub("CLAUDE", null, "never");
 
     assertEquals("from ollama",
-        chain(latch, claude, new Stub("ollama", null, "from ollama")).generate(INPUT).content());
+        chain(latch, claude, new Stub("OLLAMA", null, "from ollama")).generate(INPUT).content());
     assertEquals(0, claude.calls);
   }
 
@@ -91,7 +91,7 @@ class FallbackAiSeedClientTest {
     ProviderLatch latch = latch();
 
     assertThrows(RuntimeException.class,
-        () -> chain(latch, new Stub("claude", new IllegalStateException("blank"), null))
+        () -> chain(latch, new Stub("CLAUDE", new IllegalStateException("blank"), null))
             .generate(INPUT));
 
     assertFalse(latch.isOpen("community-seed", "claude"));
@@ -104,7 +104,7 @@ class FallbackAiSeedClientTest {
     latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
 
     SeedGenerationException thrown = assertThrows(SeedGenerationException.class,
-        () -> chain(latch, new Stub("claude", null, "x"), new Stub("ollama", null, "y"))
+        () -> chain(latch, new Stub("CLAUDE", null, "x"), new Stub("OLLAMA", null, "y"))
             .generate(INPUT));
     assertEquals("LLM_ALL_PROVIDERS_BLOCKED", thrown.errorCode());
   }
@@ -113,10 +113,10 @@ class FallbackAiSeedClientTest {
   void reportsTheProviderThatActuallyServed() {
     ProviderLatch latch = latch();
     FallbackAiSeedClient client = chain(latch,
-        new Stub("claude", status(401, "Unauthorized"), null), new Stub("ollama", null, "ok"));
+        new Stub("CLAUDE", status(401, "Unauthorized"), null), new Stub("OLLAMA", null, "ok"));
 
     client.generate(INPUT);
 
-    assertEquals("ollama", client.providerName());
+    assertEquals("OLLAMA", client.providerName());
   }
 }

@@ -66,8 +66,8 @@ class FallbackAiReviewClientTest {
   @Test
   void movesToTheNextProviderWhenThePrimaryFails() {
     ProviderLatch latch = latch();
-    Stub claude = new Stub("claude", status(429, "Too Many Requests"), null);
-    Stub ollama = new Stub("ollama", null, result(7));
+    Stub claude = new Stub("CLAUDE", status(429, "Too Many Requests"), null);
+    Stub ollama = new Stub("OLLAMA", null, result(7));
 
     assertEquals(7, chain(latch, claude, ollama).review(INPUT).confidence());
     assertEquals(1, claude.calls);
@@ -77,8 +77,8 @@ class FallbackAiReviewClientTest {
   @Test
   void opensTheLatchOnAnAvailabilityFailure() {
     ProviderLatch latch = latch();
-    chain(latch, new Stub("claude", status(429, "Too Many Requests"), null),
-                 new Stub("ollama", null, result(5))).review(INPUT);
+    chain(latch, new Stub("CLAUDE", status(429, "Too Many Requests"), null),
+                 new Stub("OLLAMA", null, result(5))).review(INPUT);
 
     assertTrue(latch.isOpen("review", "claude"));
   }
@@ -87,10 +87,10 @@ class FallbackAiReviewClientTest {
   void skipsAProviderWhoseLatchIsOpenWithoutCallingIt() {
     ProviderLatch latch = latch();
     latch.recordFailure("review", "claude", FailureKind.AUTH, null);
-    Stub claude = new Stub("claude", null, result(9));
+    Stub claude = new Stub("CLAUDE", null, result(9));
 
     assertEquals(3,
-        chain(latch, claude, new Stub("ollama", null, result(3))).review(INPUT).confidence());
+        chain(latch, claude, new Stub("OLLAMA", null, result(3))).review(INPUT).confidence());
     assertEquals(0, claude.calls);
   }
 
@@ -99,8 +99,8 @@ class FallbackAiReviewClientTest {
     ProviderLatch latch = latch();
 
     assertThrows(RuntimeException.class,
-        () -> chain(latch, new Stub("claude", new IllegalStateException("schema mismatch"), null),
-                           new Stub("ollama", new IllegalStateException("also bad"), null))
+        () -> chain(latch, new Stub("CLAUDE", new IllegalStateException("schema mismatch"), null),
+                           new Stub("OLLAMA", new IllegalStateException("also bad"), null))
             .review(INPUT));
 
     assertFalse(latch.isOpen("review", "claude"));
@@ -115,8 +115,8 @@ class FallbackAiReviewClientTest {
     latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
 
     TransientReviewException thrown = assertThrows(TransientReviewException.class,
-        () -> chain(latch, new Stub("claude", null, result(1)),
-                           new Stub("ollama", null, result(2))).review(INPUT));
+        () -> chain(latch, new Stub("CLAUDE", null, result(1)),
+                           new Stub("OLLAMA", null, result(2))).review(INPUT));
     assertEquals("LLM_ALL_PROVIDERS_BLOCKED", thrown.errorCode());
   }
 
@@ -126,8 +126,8 @@ class FallbackAiReviewClientTest {
     RuntimeException ollamaFailure = status(503, "Service Unavailable");
 
     RuntimeException thrown = assertThrows(RuntimeException.class,
-        () -> chain(latch, new Stub("claude", status(429, "Too Many Requests"), null),
-                           new Stub("ollama", ollamaFailure, null)).review(INPUT));
+        () -> chain(latch, new Stub("CLAUDE", status(429, "Too Many Requests"), null),
+                           new Stub("OLLAMA", ollamaFailure, null)).review(INPUT));
     assertSame(ollamaFailure, thrown);
   }
 
@@ -137,7 +137,7 @@ class FallbackAiReviewClientTest {
     latch.recordFailure("review", "ollama", FailureKind.TRANSIENT, null);
     latch.recordFailure("review", "ollama", FailureKind.TRANSIENT, null);
 
-    chain(latch, new Stub("ollama", null, result(4))).review(INPUT);
+    chain(latch, new Stub("OLLAMA", null, result(4))).review(INPUT);
 
     assertFalse(latch.isOpen("review", "ollama"));
   }
@@ -146,11 +146,11 @@ class FallbackAiReviewClientTest {
   void reportsTheProviderThatActuallyServed() {
     ProviderLatch latch = latch();
     FallbackAiReviewClient client = chain(latch,
-        new Stub("claude", status(429, "Too Many Requests"), null),
-        new Stub("ollama", null, result(6)));
+        new Stub("CLAUDE", status(429, "Too Many Requests"), null),
+        new Stub("OLLAMA", null, result(6)));
 
     client.review(INPUT);
 
-    assertEquals("ollama", client.providerName());
+    assertEquals("OLLAMA", client.providerName());
   }
 }
