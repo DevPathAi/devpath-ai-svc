@@ -1,0 +1,36 @@
+---
+name: Mission Spine Release Gate Dispatch
+
+'on':
+  push:
+    branches:
+      - automation/dispatch-ms-20261002-ai-provider-fallback-gpu7b
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch protected AI release evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch AI evaluation as GitHub Actions automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-release-eval.yml/dispatches" \
+            --input - <<'JSON'
+          {
+            "ref": "main",
+            "inputs": {
+              "release_id": "ms-20261002-ai-provider-fallback-gpu7b",
+              "candidate_spec_sha256": "ef51e3ef8f71decfdebfbe5b4dbb1e3b7d7edc989265b9ce7c5595bee0407e0f",
+              "ai_source_sha": "83cfe792201b472aa97e0a2ce03aea79c23f483d",
+              "gitops_source_sha": "eb413814c9a813d84b8e1b2c7f5d69979b18bb02"
+            }
+          }
+          JSON
