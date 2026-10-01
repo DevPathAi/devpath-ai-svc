@@ -10,15 +10,11 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.StructuredMessageCreateParams;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 운영 코드리뷰(Anthropic Claude, 구조화 출력으로 ReviewResult 스키마 강제).
  * 키(ANTHROPIC_API_KEY)는 SDK가 환경변수로 읽는다. 키 없으면 호출 시 SDK가 인증 오류 → ReviewService가 FAILED 처리.
  */
-@Component
-@ConditionalOnProperty(name = "devpath.review.provider", havingValue = "claude")
 public class ClaudeAiReviewClient implements AiReviewClient {
 
   private final AnthropicClient client;

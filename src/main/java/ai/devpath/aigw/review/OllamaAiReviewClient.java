@@ -5,9 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -18,8 +16,6 @@ import tools.jackson.databind.json.JsonMapper;
  * dev 코드리뷰(Ollama, 코드특화 모델 + 구조화 출력 format).
  * 사용자 코드는 ReviewPromptBuilder가 델리미터로 격리(인젝션 방어), 출력은 format JSON schema로 제약.
  */
-@Component
-@ConditionalOnProperty(name = "devpath.review.provider", havingValue = "ollama")
 public class OllamaAiReviewClient implements AiReviewClient {
 
   private final RestClient restClient;
