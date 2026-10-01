@@ -5,11 +5,7 @@ import com.anthropic.errors.AnthropicException;
 import com.anthropic.models.messages.MessageCreateParams;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
-@Component
-@ConditionalOnProperty(name = "devpath.retention.provider", havingValue = "claude")
 public class ClaudeReEngagementClient implements ReEngagementSuggestionClient {
 
 	private final AnthropicClient client;
