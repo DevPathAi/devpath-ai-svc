@@ -5,16 +5,12 @@ import com.anthropic.errors.AnthropicException;
 import com.anthropic.models.messages.MessageCreateParams;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 /**
  * 운영 커뮤니티 시드 클라이언트(Anthropic Claude, 비스트리밍 자유 텍스트).
  * 시드는 "방향 제시 수준 초안"이라 Haiku급 모델 사용(설계 §11). 인젝션 방어는 SeedPromptBuilder.
  * 키(ANTHROPIC_API_KEY)는 SDK가 환경변수로 읽는다. 빈 이름은 review/mentor와 분리(communitySeedAnthropicClient).
  */
-@Component
-@ConditionalOnProperty(name = "devpath.community-seed.provider", havingValue = "claude")
 public class ClaudeSeedClient implements AiSeedClient {
 
   private final AnthropicClient client;
