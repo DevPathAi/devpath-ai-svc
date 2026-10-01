@@ -35,3 +35,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# superpowers 실행 작업공간 (계획별 스크래치 — 커밋하지 않는다)
+.superpowers/
