@@ -1,11 +1,11 @@
 package ai.devpath.aigw.review;
 
+import ai.devpath.aigw.provider.OllamaHttp;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -28,10 +28,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
       @Value("${devpath.review.ollama-model:qwen2.5-coder:7b}") String model,
       @Value("${devpath.review.ollama-timeout:PT60S}") Duration timeout,
       ReviewPromptBuilder prompts, JsonMapper jsonMapper) {
-    var factory = new SimpleClientHttpRequestFactory();
-    factory.setConnectTimeout(timeout);
-    factory.setReadTimeout(timeout);
-    this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+    this(baseUrl, model, timeout, timeout, prompts, jsonMapper);
+  }
+
+  /** 연결과 읽기 타임아웃을 따로 받는다(스펙 2026-10-03 §3.1-6). 운영 조립은 이 생성자를 쓴다. */
+  public OllamaAiReviewClient(
+      String baseUrl, String model, Duration connectTimeout, Duration readTimeout,
+      ReviewPromptBuilder prompts, JsonMapper jsonMapper) {
+    this.restClient = RestClient.builder().baseUrl(baseUrl)
+        .requestFactory(OllamaHttp.requestFactory(connectTimeout, readTimeout)).build();
     this.model = model;
     this.prompts = prompts;
     this.jsonMapper = jsonMapper;

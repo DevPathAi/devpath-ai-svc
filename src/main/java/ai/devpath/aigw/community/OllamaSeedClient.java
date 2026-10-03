@@ -1,11 +1,11 @@
 package ai.devpath.aigw.community;
 
+import ai.devpath.aigw.provider.OllamaHttp;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -24,10 +24,15 @@ public class OllamaSeedClient implements AiSeedClient {
       @Value("${devpath.community-seed.ollama-model:qwen2.5:7b}") String model,
       @Value("${devpath.community-seed.ollama-timeout:PT60S}") Duration timeout,
       SeedPromptBuilder prompts, tools.jackson.databind.json.JsonMapper jsonMapper) {
-    var factory = new SimpleClientHttpRequestFactory();
-    factory.setConnectTimeout(timeout);
-    factory.setReadTimeout(timeout);
-    this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+    this(baseUrl, model, timeout, timeout, prompts, jsonMapper);
+  }
+
+  /** 연결과 읽기 타임아웃을 따로 받는다(스펙 2026-10-03 §3.1-6). 운영 조립은 이 생성자를 쓴다. */
+  public OllamaSeedClient(
+      String baseUrl, String model, Duration connectTimeout, Duration readTimeout,
+      SeedPromptBuilder prompts, tools.jackson.databind.json.JsonMapper jsonMapper) {
+    this.restClient = RestClient.builder().baseUrl(baseUrl)
+        .requestFactory(OllamaHttp.requestFactory(connectTimeout, readTimeout)).build();
     this.model = model;
     this.prompts = prompts;
   }

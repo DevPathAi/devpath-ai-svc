@@ -26,6 +26,7 @@ public class ReEngagementClientConfig {
 			String ollamaBaseUrl,
 			@Value("${devpath.retention.ollama-model:qwen2.5:7b}") String ollamaModel,
 			@Value("${devpath.retention.ollama-timeout:PT60S}") Duration ollamaTimeout,
+			@Value("${devpath.retention.ollama-connect-timeout:PT3S}") Duration ollamaConnectTimeout,
 			@Value("${devpath.retention.claude-model:claude-sonnet-4-6}") String claudeModel,
 			ReEngagementPromptBuilder prompts, ProviderLatch latch,
 			@Qualifier("retentionAnthropicClient")
@@ -36,8 +37,8 @@ public class ReEngagementClientConfig {
 		}
 
 		LinkedHashMap<String, ReEngagementSuggestionClient> available = new LinkedHashMap<>();
-		available.put("ollama",
-				new OllamaReEngagementClient(ollamaBaseUrl, ollamaModel, ollamaTimeout, prompts));
+		available.put("ollama", new OllamaReEngagementClient(
+				ollamaBaseUrl, ollamaModel, ollamaConnectTimeout, ollamaTimeout, prompts));
 		AnthropicClient anthropic = anthropicClientProvider.getIfAvailable();
 		if (anthropic != null) {
 			available.put("claude",

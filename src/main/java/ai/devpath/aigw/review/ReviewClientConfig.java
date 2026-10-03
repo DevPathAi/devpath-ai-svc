@@ -30,6 +30,7 @@ public class ReviewClientConfig {
       String ollamaBaseUrl,
       @Value("${devpath.review.ollama-model:qwen2.5-coder:7b}") String ollamaModel,
       @Value("${devpath.review.ollama-timeout:PT60S}") Duration ollamaTimeout,
+      @Value("${devpath.review.ollama-connect-timeout:PT3S}") Duration ollamaConnectTimeout,
       @Value("${devpath.review.claude-model:claude-sonnet-4-6}") String claudeModel,
       ReviewPromptBuilder prompts, JsonMapper jsonMapper, ProviderLatch latch,
       @Qualifier("anthropicClient") ObjectProvider<AnthropicClient> anthropicClientProvider) {
@@ -39,8 +40,8 @@ public class ReviewClientConfig {
     }
 
     LinkedHashMap<String, AiReviewClient> available = new LinkedHashMap<>();
-    available.put("ollama",
-        new OllamaAiReviewClient(ollamaBaseUrl, ollamaModel, ollamaTimeout, prompts, jsonMapper));
+    available.put("ollama", new OllamaAiReviewClient(
+        ollamaBaseUrl, ollamaModel, ollamaConnectTimeout, ollamaTimeout, prompts, jsonMapper));
     AnthropicClient anthropic = anthropicClientProvider.getIfAvailable();
     if (anthropic != null) {
       available.put("claude", new ClaudeAiReviewClient(anthropic, claudeModel, prompts));

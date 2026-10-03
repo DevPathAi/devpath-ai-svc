@@ -27,6 +27,7 @@ public class CommunitySeedClientConfig {
       String ollamaBaseUrl,
       @Value("${devpath.community-seed.ollama-model:qwen2.5:7b}") String ollamaModel,
       @Value("${devpath.community-seed.ollama-timeout:PT60S}") Duration ollamaTimeout,
+      @Value("${devpath.community-seed.ollama-connect-timeout:PT3S}") Duration ollamaConnectTimeout,
       @Value("${devpath.community-seed.claude-model:claude-haiku-4-5}") String claudeModel,
       SeedPromptBuilder prompts, JsonMapper jsonMapper, ProviderLatch latch,
       @Qualifier("communitySeedAnthropicClient")
@@ -37,8 +38,8 @@ public class CommunitySeedClientConfig {
     }
 
     LinkedHashMap<String, AiSeedClient> available = new LinkedHashMap<>();
-    available.put("ollama",
-        new OllamaSeedClient(ollamaBaseUrl, ollamaModel, ollamaTimeout, prompts, jsonMapper));
+    available.put("ollama", new OllamaSeedClient(
+        ollamaBaseUrl, ollamaModel, ollamaConnectTimeout, ollamaTimeout, prompts, jsonMapper));
     AnthropicClient anthropic = anthropicClientProvider.getIfAvailable();
     if (anthropic != null) {
       available.put("claude", new ClaudeSeedClient(anthropic, claudeModel, prompts));
