@@ -81,13 +81,14 @@ class ReEngagementProviderRecordingTest {
     controller.reEngage(INPUT);
     assertEquals("OLLAMA", client.providerName());
 
-    // 두 provider 모두 차단 → 아무도 호출되지 않는다. 직전 요청의 OLLAMA 가 남아 있으면 안 된다.
+    // 두 provider 모두 차단 → 1순위(Claude)를 한 번 부른다(스펙 2026-10-03 §3.1-1 규칙 ③).
+    // 직전 요청의 OLLAMA 가 남아 있으면 안 된다.
     latch.recordFailure("retention", "claude", FailureKind.AUTH, null);
     latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
     try {
       controller.reEngage(INPUT);
-    } catch (ReEngagementGenerationException expected) {
-      // 체인이 전부 차단된 경우의 기존 예외
+    } catch (RestClientResponseException expected) {
+      // 1순위 스텁의 503 이 그대로 올라온다
     }
 
     assertEquals("CLAUDE", client.providerName());

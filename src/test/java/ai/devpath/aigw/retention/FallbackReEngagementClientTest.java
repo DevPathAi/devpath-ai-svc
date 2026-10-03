@@ -2,6 +2,7 @@ package ai.devpath.aigw.retention;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,6 +13,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClientResponseException;
@@ -92,17 +94,6 @@ class FallbackReEngagementClientTest {
 	}
 
 	@Test
-	void throwsTheExistingRetentionExceptionWhenEveryProviderIsBlocked() {
-		ProviderLatch latch = latch();
-		latch.recordFailure("retention", "claude", FailureKind.AUTH, null);
-		latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
-
-		assertThrows(ReEngagementGenerationException.class,
-				() -> chain(latch, new Stub("CLAUDE", null, "x"), new Stub("OLLAMA", null, "y"))
-						.suggest(INPUT));
-	}
-
-	@Test
 	void reportsTheProviderThatActuallyServed() {
 		ProviderLatch latch = latch();
 		FallbackReEngagementClient client = chain(latch,
@@ -112,5 +103,77 @@ class FallbackReEngagementClientTest {
 		client.suggest(INPUT);
 
 		assertEquals("OLLAMA", client.providerName());
+	}
+
+	private FallbackReEngagementClient chain(
+			ProviderLatch latch, Map<String, ReEngagementSuggestionClient> lastResort, Stub... stubs) {
+		LinkedHashMap<String, ReEngagementSuggestionClient> delegates = new LinkedHashMap<>();
+		for (Stub s : stubs) delegates.put(s.providerName().toLowerCase(Locale.ROOT), s);
+		return new FallbackReEngagementClient(delegates, lastResort, latch);
+	}
+
+	@Test
+	void usesTheFastClaudeWhileAUsableFallbackFollows() {
+		ProviderLatch latch = latch();
+		Stub fast = new Stub("CLAUDE", status(503, "Service Unavailable"), null);
+		Stub patient = new Stub("CLAUDE", null, "patient");
+
+		assertEquals("ollama", chain(latch, Map.of("claude", patient), fast,
+				new Stub("OLLAMA", null, "ollama")).suggest(INPUT));
+		assertEquals(1, fast.calls);
+		assertEquals(0, patient.calls);
+	}
+
+	@Test
+	void usesTheLastResortClaudeWhenTheFallbackIsBlocked() {
+		ProviderLatch latch = latch();
+		latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
+		Stub fast = new Stub("CLAUDE", null, "fast");
+		Stub patient = new Stub("CLAUDE", null, "patient");
+
+		assertEquals("patient", chain(latch, Map.of("claude", patient), fast,
+				new Stub("OLLAMA", null, "ollama")).suggest(INPUT));
+		assertEquals(0, fast.calls);
+		assertEquals(1, patient.calls);
+	}
+
+	@Test
+	void callsThePrimaryLastResortOnceWhenEveryProviderIsBlocked() {
+		// 스펙 §3.1-1 규칙 ③(예전에는 ReEngagementGenerationException 으로 실패).
+		ProviderLatch latch = latch();
+		latch.recordFailure("retention", "claude", FailureKind.RATE_LIMIT, null);
+		latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
+		Stub patient = new Stub("CLAUDE", null, "patient");
+
+		assertEquals("patient", chain(latch, Map.of("claude", patient),
+				new Stub("CLAUDE", null, "fast"), new Stub("OLLAMA", null, "ollama")).suggest(INPUT));
+		assertEquals(1, patient.calls);
+	}
+
+	@Test
+	void surfacesTheLastResortFailureWhenEveryProviderIsBlocked() {
+		ProviderLatch latch = latch();
+		latch.recordFailure("retention", "claude", FailureKind.RATE_LIMIT, null);
+		latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
+		ReEngagementGenerationException failure =
+				new ReEngagementGenerationException("Claude 재참여 문구 생성 실패", null);
+
+		RuntimeException thrown = assertThrows(RuntimeException.class,
+				() -> chain(latch, Map.of("claude", new Stub("CLAUDE", failure, null)),
+						new Stub("CLAUDE", null, "fast"), new Stub("OLLAMA", null, "ollama")).suggest(INPUT));
+		assertSame(failure, thrown);
+	}
+
+	@Test
+	void reportsClaudeWhenTheLastResortVariantServed() {
+		ProviderLatch latch = latch();
+		latch.recordFailure("retention", "ollama", FailureKind.AUTH, null);
+		FallbackReEngagementClient client = chain(latch,
+				Map.of("claude", new Stub("CLAUDE", null, "patient")),
+				new Stub("CLAUDE", null, "fast"), new Stub("OLLAMA", null, "ollama"));
+
+		client.suggest(INPUT);
+
+		assertEquals("CLAUDE", client.providerName());
 	}
 }
