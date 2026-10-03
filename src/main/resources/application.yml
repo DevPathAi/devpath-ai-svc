@@ -98,6 +98,8 @@ devpath:
   provider:
     # 기한이 지난 래치를 배경에서 탐색하는 주기. 사용자 요청은 탐색에 쓰지 않는다(스펙 §3.1).
     probe-interval: ${PROVIDER_PROBE_INTERVAL:PT1M}
+    # 폴백 자리 Ollama 의 생존 탐색 주기. 래치가 닫혀 있어도 핑해 죽은 폴백을 요청 전에 막는다(스펙 2026-10-03 §3.1-5).
+    liveness-interval: ${PROVIDER_LIVENESS_INTERVAL:PT30S}
 
 management:
   endpoints:

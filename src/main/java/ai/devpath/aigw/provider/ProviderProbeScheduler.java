@@ -55,6 +55,28 @@ public class ProviderProbeScheduler {
     }
   }
 
+  /**
+   * 폴백 자리 provider 의 생존 탐색(스펙 2026-10-03 §3.1-5). 래치가 <b>닫힌</b> 대상만 핑한다 —
+   * 열린 것은 {@link #runDueProbes} 가 복구를 맡는다. 실패하면 사용자 요청의 「3연속」 게이트 없이
+   * 즉시 연다(다음 요청이 죽은 폴백으로 가서 지연을 물지 않게). 성공은 기록하지 않는다 — 사용자
+   * 요청 실패 카운터는 실제 호출에 대한 증거라 핑 하나로 지우지 않는다.
+   */
+  @Scheduled(fixedDelayString = "${devpath.provider.liveness-interval:PT30S}")
+  public void runLivenessProbes() {
+    for (ProviderProbe probe : probes) {
+      if (!probe.livenessTarget() || latch.isOpen(probe.feature(), probe.provider())) continue;
+      try {
+        probe.ping();
+      } catch (RuntimeException e) {
+        ProviderFailures.Classified c = ProviderFailures.classify(e);
+        boolean open = latch.recordProbeFailure(
+            probe.feature(), probe.provider(), c.kind(), c.retryAfter());
+        log.warn("provider liveness probe failed: feature={} provider={} kind={} latchOpen={} reason={}",
+            probe.feature(), probe.provider(), c.kind(), open, e.toString());
+      }
+    }
+  }
+
   private ProviderProbe find(ProviderLatch.Probe due) {
     for (ProviderProbe p : probes) {
       if (p.feature().equals(due.feature()) && p.provider().equals(due.provider())) return p;
