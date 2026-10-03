@@ -50,6 +50,14 @@ public final class ProviderChain {
     return requestedNames(provider, fallbackCsv).size();
   }
 
+  /**
+   * {@code name} 이 체인의 1순위가 아닌 자리(폴백)에 있는가. {@link #ordered} 와 같은 규칙
+   * (trim·빈 값·중복 제거)으로 판단한다 — 탐색 빈의 조건과 실제 체인이 어긋나지 않게.
+   */
+  public static boolean isFallback(String provider, String fallbackCsv, String name) {
+    return requestedNames(provider, fallbackCsv).indexOf(name) > 0;
+  }
+
   /** provider 를 맨 앞에 두고 fallback CSV 를 이어 붙인 뒤 공백·빈 값·중복을 제거한 순서. */
   private static List<String> requestedNames(String provider, String fallbackCsv) {
     List<String> order = new ArrayList<>();
