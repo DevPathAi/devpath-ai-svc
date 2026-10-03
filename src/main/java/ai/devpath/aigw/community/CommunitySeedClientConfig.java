@@ -1,10 +1,12 @@
 package ai.devpath.aigw.community;
 
+import ai.devpath.aigw.provider.ClaudeClients;
 import ai.devpath.aigw.provider.ProviderChain;
 import ai.devpath.aigw.provider.ProviderLatch;
 import com.anthropic.client.AnthropicClient;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +29,7 @@ public class CommunitySeedClientConfig {
       String ollamaBaseUrl,
       @Value("${devpath.community-seed.ollama-model:qwen2.5:7b}") String ollamaModel,
       @Value("${devpath.community-seed.ollama-timeout:PT60S}") Duration ollamaTimeout,
+      @Value("${devpath.community-seed.ollama-connect-timeout:PT3S}") Duration ollamaConnectTimeout,
       @Value("${devpath.community-seed.claude-model:claude-haiku-4-5}") String claudeModel,
       SeedPromptBuilder prompts, JsonMapper jsonMapper, ProviderLatch latch,
       @Qualifier("communitySeedAnthropicClient")
@@ -37,8 +40,8 @@ public class CommunitySeedClientConfig {
     }
 
     LinkedHashMap<String, AiSeedClient> available = new LinkedHashMap<>();
-    available.put("ollama",
-        new OllamaSeedClient(ollamaBaseUrl, ollamaModel, ollamaTimeout, prompts, jsonMapper));
+    available.put("ollama", new OllamaSeedClient(
+        ollamaBaseUrl, ollamaModel, ollamaConnectTimeout, ollamaTimeout, prompts, jsonMapper));
     AnthropicClient anthropic = anthropicClientProvider.getIfAvailable();
     if (anthropic != null) {
       available.put("claude", new ClaudeSeedClient(anthropic, claudeModel, prompts));
@@ -50,8 +53,15 @@ public class CommunitySeedClientConfig {
       throw new IllegalStateException(
           "devpath.community-seed.provider=" + provider + " 에 해당하는 가용 provider 가 없다");
     }
-    return chain.size() == 1
-        ? chain.values().iterator().next()
-        : new FallbackAiSeedClient(chain, latch);
+    if (chain.size() == 1) {
+      return chain.values().iterator().next();
+    }
+    // 체인이 있을 때만 「마지막 수단」 Claude 를 만든다(빈이 아니다, 스펙 2026-10-03 §3.1-2).
+    Map<String, AiSeedClient> lastResort = new LinkedHashMap<>();
+    if (anthropic != null && chain.containsKey("claude")) {
+      lastResort.put("claude",
+          new ClaudeSeedClient(ClaudeClients.lastResort(anthropic), claudeModel, prompts));
+    }
+    return new FallbackAiSeedClient(chain, lastResort, latch);
   }
 }

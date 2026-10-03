@@ -76,4 +76,18 @@ class ClaudeRetryBudgetTest {
 
     assertEquals(3, server.getRequestCount());
   }
+
+  @Test
+  void theLastResortCopyRestoresTheSdkRetryBudgetWithoutTouchingTheFastClient() {
+    for (int i = 0; i < 4; i++) server.enqueue(new MockResponse().setResponseCode(500));
+    AnthropicClient fast = client("claude", "ollama");
+
+    assertThrows(RuntimeException.class, () -> ping(ClaudeClients.lastResort(fast)));
+    // SDK 기본 maxRetries = 2 → 총 3회.
+    assertEquals(3, server.getRequestCount());
+
+    assertThrows(RuntimeException.class, () -> ping(fast));
+    // 원본(체인용, 재시도 0)은 그대로다 — 1회만 더.
+    assertEquals(4, server.getRequestCount());
+  }
 }

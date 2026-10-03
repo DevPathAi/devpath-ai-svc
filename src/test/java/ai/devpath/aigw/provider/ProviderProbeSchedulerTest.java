@@ -137,4 +137,93 @@ class ProviderProbeSchedulerTest {
 
     new ProviderProbeScheduler(latch, List.of()).runDueProbes();   // 예외 없이 지나간다
   }
+
+  private static final class LivenessProbe implements ProviderProbe {
+    private final String feature;
+    private final String provider;
+    private final RuntimeException failure;
+    int pings;
+
+    LivenessProbe(String feature, String provider, RuntimeException failure) {
+      this.feature = feature;
+      this.provider = provider;
+      this.failure = failure;
+    }
+
+    @Override public String feature() { return feature; }
+    @Override public String provider() { return provider; }
+    @Override public boolean livenessTarget() { return true; }
+    @Override public void ping() {
+      pings++;
+      if (failure != null) throw failure;
+    }
+  }
+
+  private static RestClientResponseException unavailable() {
+    return new RestClientResponseException(
+        "Service Unavailable", 503, "Service Unavailable", new HttpHeaders(), null, null);
+  }
+
+  @Test
+  void livenessFailureOpensTheLatchImmediately() {
+    // 사용자 요청의 「3연속」 게이트를 쓰지 않는다 — 죽은 폴백을 다음 요청 전에 막아야 한다.
+    ProviderLatch latch = new ProviderLatch(new MovableClock());
+    LivenessProbe ollama = new LivenessProbe("review", "ollama", unavailable());
+
+    new ProviderProbeScheduler(latch, List.of(ollama)).runLivenessProbes();
+
+    assertEquals(1, ollama.pings);
+    assertTrue(latch.isOpen("review", "ollama"));
+  }
+
+  @Test
+  void livenessSuccessLeavesTheUserFailureCountAlone() {
+    ProviderLatch latch = new ProviderLatch(new MovableClock());
+    latch.recordFailure("review", "ollama", FailureKind.TRANSIENT, null);
+    latch.recordFailure("review", "ollama", FailureKind.TRANSIENT, null);
+
+    new ProviderProbeScheduler(latch, List.of(new LivenessProbe("review", "ollama", null)))
+        .runLivenessProbes();
+    latch.recordFailure("review", "ollama", FailureKind.TRANSIENT, null);
+
+    // 성공한 생존 핑이 recordSuccess 를 하면 카운터가 0 이 되어 세 번째에서 열리지 않는다.
+    assertTrue(latch.isOpen("review", "ollama"));
+  }
+
+  @Test
+  void livenessSkipsALatchThatIsAlreadyOpen() {
+    ProviderLatch latch = new ProviderLatch(new MovableClock());
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    LivenessProbe ollama = new LivenessProbe("review", "ollama", null);
+
+    new ProviderProbeScheduler(latch, List.of(ollama)).runLivenessProbes();
+
+    assertEquals(0, ollama.pings);
+  }
+
+  @Test
+  void livenessIgnoresProbesThatAreNotLivenessTargets() {
+    ProviderLatch latch = new ProviderLatch(new MovableClock());
+    StubProbe claude = new StubProbe("review", "claude", unavailable());
+
+    new ProviderProbeScheduler(latch, List.of(claude)).runLivenessProbes();
+
+    assertEquals(0, claude.pings);
+    assertFalse(latch.isOpen("review", "claude"));
+  }
+
+  @Test
+  void theOpenedLivenessLatchIsClosedByTheDueProbeOnceOllamaReturns() {
+    MovableClock clock = new MovableClock();
+    ProviderLatch latch = new ProviderLatch(clock);
+    new ProviderProbeScheduler(latch, List.of(new LivenessProbe("review", "ollama", unavailable())))
+        .runLivenessProbes();
+    assertTrue(latch.isOpen("review", "ollama"));
+
+    clock.advance(Duration.ofMinutes(2));
+    new ProviderProbeScheduler(latch, List.of(new LivenessProbe("review", "ollama", null)))
+        .runDueProbes();
+
+    assertFalse(latch.isOpen("review", "ollama"));
+  }
 }
