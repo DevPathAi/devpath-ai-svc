@@ -66,8 +66,12 @@ public class FallbackAiReviewClient implements AiReviewClient {
         latch.recordSuccess(FEATURE, name);
         return result;
       } catch (RuntimeException ex) {
-        ProviderFailures.Classified c = ProviderFailures.classify(ex);
-        latch.recordFailure(FEATURE, name, c.kind(), c.retryAfter());
+        // 전부 막혀 래치를 무시하고 부른 시도(forced)의 실패는 다시 기록하지 않는다 — 이미 열린
+        // 래치의 사다리만 키워, 폴백이 돌아온 뒤에도 회복된 1순위를 오래 건너뛰게 된다.
+        if (!attempt.forced()) {
+          ProviderFailures.Classified c = ProviderFailures.classify(ex);
+          latch.recordFailure(FEATURE, name, c.kind(), c.retryAfter());
+        }
         last = ex;
       }
     }

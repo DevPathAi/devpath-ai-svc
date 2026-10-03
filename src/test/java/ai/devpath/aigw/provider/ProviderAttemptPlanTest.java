@@ -44,7 +44,7 @@ class ProviderAttemptPlanTest {
   void everythingBlockedCallsThePrimaryOnceAnyway() {
     // 폴백을 끈 상태(체인 길이 1)에는 래치가 없어 매번 1순위를 부른다 — 그것과 같아야 한다.
     assertEquals(
-        List.of(new Attempt("claude", Mode.LAST_RESORT)),
+        List.of(new Attempt("claude", Mode.LAST_RESORT, true)),
         ProviderAttemptPlan.plan(List.of("claude", "ollama"), open("claude", "ollama")));
   }
 
