@@ -30,6 +30,15 @@ public final class ClaudeClients {
   }
 
   /**
+   * 「마지막 수단」 클라이언트: 같은 키·주소·타임아웃에 재시도만 SDK 기본(2)으로 되돌린 사본.
+   * 뒤에 쓸 수 있는 provider 가 없을 때 래퍼가 쓴다(스펙 2026-10-03 §3.1-2) — 그때는 래치 판정을
+   * 지킬 이유(넘겨받을 폴백)가 없으므로 폴백을 끈 상태와 같은 재시도를 준다. 원본은 바꾸지 않는다.
+   */
+  public static AnthropicClient lastResort(AnthropicClient fast) {
+    return fast.withOptions(options -> options.maxRetries(SDK_DEFAULT_MAX_RETRIES));
+  }
+
+  /**
    * SDK 재시도 예산은 <b>체인을 따라간다</b>.
    *
    * <p>보정 §D-② 가 재시도를 끈 이유는 「SDK 가 429 를 삼키면 {@link ProviderLatch} 의 rate_limit

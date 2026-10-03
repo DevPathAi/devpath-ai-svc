@@ -21,6 +21,12 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  task:
+    scheduling:
+      pool:
+        # @Scheduled 3개(outbox relay 2초 · 래치 복구 탐색 · Ollama 생존 탐색)가 서로를 기다리지 않게 한다.
+        # 기본 1이면 응답 없는 Ollama 를 탐색하는 동안(최대 3×(3초+5초)) outbox 발행이 멈춘다.
+        size: 3
 
 server:
   port: 8080
@@ -43,6 +49,8 @@ devpath:
     # 이 기능의 Ollama 만 다른 주소(예: GPU 노드)로 보낼 수 있다. 값을 주지 않으면 공용 base-url 을 쓴다.
     # devpath.ollama.path-base-url 과 같은 패턴이다 — 여기에 등록하지 않으면 환경 변수가 조용히 무시된다.
     ollama-base-url: ${REVIEW_OLLAMA_BASE_URL:${devpath.ollama.base-url}}
+    # 연결만 짧게 끊는다 — GPU 노드가 갑자기 사라졌을 때 요청마다 60초를 기다리지 않게(스펙 2026-10-03 §3.1-6).
+    ollama-connect-timeout: ${REVIEW_OLLAMA_CONNECT_TIMEOUT:PT3S}
     claude-model: ${REVIEW_CLAUDE_MODEL:claude-sonnet-4-6}
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
@@ -75,6 +83,8 @@ devpath:
     ollama-model: ${COMMUNITY_SEED_OLLAMA_MODEL:qwen2.5:7b}
     # review 의 ollama-base-url 과 같은 규칙. 미지정이면 공용 base-url.
     ollama-base-url: ${COMMUNITY_SEED_OLLAMA_BASE_URL:${devpath.ollama.base-url}}
+    # 연결만 짧게 끊는다 — GPU 노드가 갑자기 사라졌을 때 요청마다 60초를 기다리지 않게(스펙 2026-10-03 §3.1-6).
+    ollama-connect-timeout: ${COMMUNITY_SEED_OLLAMA_CONNECT_TIMEOUT:PT3S}
     enabled: ${COMMUNITY_SEED_ENABLED:true}
   learning:
     # 게이트웨이 미경유 내부 호출. 실제 주소는 LEARNING_URI로 주입(learning-svc server.port=8080 실측).
@@ -87,11 +97,15 @@ devpath:
     ollama-model: ${RETENTION_OLLAMA_MODEL:qwen2.5:7b}
     # review 의 ollama-base-url 과 같은 규칙. 미지정이면 공용 base-url.
     ollama-base-url: ${RETENTION_OLLAMA_BASE_URL:${devpath.ollama.base-url}}
+    # 연결만 짧게 끊는다 — GPU 노드가 갑자기 사라졌을 때 요청마다 60초를 기다리지 않게(스펙 2026-10-03 §3.1-6).
+    ollama-connect-timeout: ${RETENTION_OLLAMA_CONNECT_TIMEOUT:PT3S}
     claude-model: ${RETENTION_CLAUDE_MODEL:claude-sonnet-4-6}
     enabled: ${RETENTION_ENABLED:true}
   provider:
     # 기한이 지난 래치를 배경에서 탐색하는 주기. 사용자 요청은 탐색에 쓰지 않는다(스펙 §3.1).
     probe-interval: ${PROVIDER_PROBE_INTERVAL:PT1M}
+    # 폴백 자리 Ollama 의 생존 탐색 주기. 래치가 닫혀 있어도 핑해 죽은 폴백을 요청 전에 막는다(스펙 2026-10-03 §3.1-5).
+    liveness-interval: ${PROVIDER_LIVENESS_INTERVAL:PT30S}
 
 management:
   endpoints:

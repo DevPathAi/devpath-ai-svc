@@ -1,11 +1,11 @@
 package ai.devpath.aigw.review;
 
+import ai.devpath.aigw.provider.OllamaHttp;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -28,10 +28,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
       @Value("${devpath.review.ollama-model:qwen2.5-coder:7b}") String model,
       @Value("${devpath.review.ollama-timeout:PT60S}") Duration timeout,
       ReviewPromptBuilder prompts, JsonMapper jsonMapper) {
-    var factory = new SimpleClientHttpRequestFactory();
-    factory.setConnectTimeout(timeout);
-    factory.setReadTimeout(timeout);
-    this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+    this(baseUrl, model, timeout, timeout, prompts, jsonMapper);
+  }
+
+  /** 연결과 읽기 타임아웃을 따로 받는다(스펙 2026-10-03 §3.1-6). 운영 조립은 이 생성자를 쓴다. */
+  public OllamaAiReviewClient(
+      String baseUrl, String model, Duration connectTimeout, Duration readTimeout,
+      ReviewPromptBuilder prompts, JsonMapper jsonMapper) {
+    this.restClient = RestClient.builder().baseUrl(baseUrl)
+        .requestFactory(OllamaHttp.requestFactory(connectTimeout, readTimeout)).build();
     this.model = model;
     this.prompts = prompts;
     this.jsonMapper = jsonMapper;
@@ -68,6 +73,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
       }
       if (status >= 500) {
         throw new TransientReviewException("LLM_5XX", "Ollama " + status, e);
+      }
+      if (status == 404) {
+        // 모델(또는 경로)이 없다 = 이 Ollama 를 지금 쓸 수 없다(스펙 2026-10-03 §3.1-7).
+        // 영구 실패로 끝내면 원래 Kafka 가 다시 시도하던 리뷰를 잃는다.
+        throw new TransientReviewException("LLM_MODEL_UNAVAILABLE", "Ollama 404", e);
       }
       throw new PermanentReviewException("PARSE_FAILED", "Ollama " + status, e);
     } catch (ResourceAccessException e) { // I/O 타임아웃/커넥션

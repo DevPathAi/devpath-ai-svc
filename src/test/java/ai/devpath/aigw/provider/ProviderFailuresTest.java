@@ -154,4 +154,27 @@ class ProviderFailuresTest {
     assertEquals(FailureKind.RATE_LIMIT, ProviderFailures.classify(outer).kind());
     assertEquals(Duration.ofSeconds(30), ProviderFailures.classify(outer).retryAfter());
   }
+
+  @Test
+  void treatsAnOllama404AsAnAvailabilityFailure() {
+    // 스펙 2026-10-03 §3.1-7: Ollama 의 404 는 모델(또는 경로)이 없다는 뜻 — 그 Ollama 를 지금 쓸 수 없다.
+    RestClientResponseException notFound = new RestClientResponseException(
+        "Not Found", 404, "Not Found", new HttpHeaders(), null, null);
+    assertEquals(FailureKind.TRANSIENT, ProviderFailures.classify(notFound).kind());
+  }
+
+  @Test
+  void treatsAMissingOllamaModelAsAnAvailabilityFailure() {
+    assertEquals(FailureKind.TRANSIENT, ProviderFailures.classify(
+        new OllamaModelUnavailableException("qwen2.5:7b is not loaded")).kind());
+  }
+
+  @Test
+  void findsTheOllama404BehindAFeatureException() {
+    // review 는 Ollama 실패를 자기 예외로 감싼다 — 원인 체인을 따라가 404 를 찾아야 한다.
+    RestClientResponseException notFound = new RestClientResponseException(
+        "Not Found", 404, "Not Found", new HttpHeaders(), null, null);
+    assertEquals(FailureKind.TRANSIENT, ProviderFailures.classify(
+        new RuntimeException("wrapped", notFound)).kind());
+  }
 }

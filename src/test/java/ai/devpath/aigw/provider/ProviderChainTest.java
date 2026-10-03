@@ -1,6 +1,8 @@
 package ai.devpath.aigw.provider;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,5 +67,27 @@ class ProviderChainTest {
   @Test
   void orderedMapIsEmptyWhenNothingMatches() {
     assertEquals(Map.of(), ProviderChain.orderedMap("gemini", null, available()));
+  }
+
+  @Test
+  void ollamaInTheFallbackSlotIsAFallback() {
+    assertTrue(ProviderChain.isFallback("claude", "ollama", "ollama"));
+  }
+
+  @Test
+  void thePrimaryIsNotAFallback() {
+    assertFalse(ProviderChain.isFallback("ollama", "claude", "ollama"));
+  }
+
+  @Test
+  void anAbsentProviderIsNotAFallback() {
+    assertFalse(ProviderChain.isFallback("claude", "", "ollama"));
+  }
+
+  @Test
+  void isFallbackTrimsAndDeduplicates() {
+    // Review Focus 1: 체인 순서와 같은 규칙.
+    assertTrue(ProviderChain.isFallback(" claude ", " ollama , ollama ,", "ollama"));
+    assertFalse(ProviderChain.isFallback("claude", " claude , ", "claude"));
   }
 }

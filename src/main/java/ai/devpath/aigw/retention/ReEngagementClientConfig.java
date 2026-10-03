@@ -1,10 +1,12 @@
 package ai.devpath.aigw.retention;
 
+import ai.devpath.aigw.provider.ClaudeClients;
 import ai.devpath.aigw.provider.ProviderChain;
 import ai.devpath.aigw.provider.ProviderLatch;
 import com.anthropic.client.AnthropicClient;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +28,7 @@ public class ReEngagementClientConfig {
 			String ollamaBaseUrl,
 			@Value("${devpath.retention.ollama-model:qwen2.5:7b}") String ollamaModel,
 			@Value("${devpath.retention.ollama-timeout:PT60S}") Duration ollamaTimeout,
+			@Value("${devpath.retention.ollama-connect-timeout:PT3S}") Duration ollamaConnectTimeout,
 			@Value("${devpath.retention.claude-model:claude-sonnet-4-6}") String claudeModel,
 			ReEngagementPromptBuilder prompts, ProviderLatch latch,
 			@Qualifier("retentionAnthropicClient")
@@ -36,8 +39,8 @@ public class ReEngagementClientConfig {
 		}
 
 		LinkedHashMap<String, ReEngagementSuggestionClient> available = new LinkedHashMap<>();
-		available.put("ollama",
-				new OllamaReEngagementClient(ollamaBaseUrl, ollamaModel, ollamaTimeout, prompts));
+		available.put("ollama", new OllamaReEngagementClient(
+				ollamaBaseUrl, ollamaModel, ollamaConnectTimeout, ollamaTimeout, prompts));
 		AnthropicClient anthropic = anthropicClientProvider.getIfAvailable();
 		if (anthropic != null) {
 			available.put("claude",
@@ -50,8 +53,15 @@ public class ReEngagementClientConfig {
 			throw new IllegalStateException(
 					"devpath.retention.provider=" + provider + " 에 해당하는 가용 provider 가 없다");
 		}
-		return chain.size() == 1
-				? chain.values().iterator().next()
-				: new FallbackReEngagementClient(chain, latch);
+		if (chain.size() == 1) {
+			return chain.values().iterator().next();
+		}
+		// 체인이 있을 때만 「마지막 수단」 Claude 를 만든다(빈이 아니다, 스펙 2026-10-03 §3.1-2).
+		Map<String, ReEngagementSuggestionClient> lastResort = new LinkedHashMap<>();
+		if (anthropic != null && chain.containsKey("claude")) {
+			lastResort.put("claude",
+					new ClaudeReEngagementClient(ClaudeClients.lastResort(anthropic), claudeModel, prompts));
+		}
+		return new FallbackReEngagementClient(chain, lastResort, latch);
 	}
 }

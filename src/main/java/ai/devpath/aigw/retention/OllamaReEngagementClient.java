@@ -1,10 +1,10 @@
 package ai.devpath.aigw.retention;
 
+import ai.devpath.aigw.provider.OllamaHttp;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -22,10 +22,15 @@ public class OllamaReEngagementClient implements ReEngagementSuggestionClient {
 
 	public OllamaReEngagementClient(
 			String baseUrl, String model, Duration timeout, ReEngagementPromptBuilder prompts) {
-		var factory = new SimpleClientHttpRequestFactory();
-		factory.setConnectTimeout(timeout);
-		factory.setReadTimeout(timeout);
-		this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+		this(baseUrl, model, timeout, timeout, prompts);
+	}
+
+	/** 연결과 읽기 타임아웃을 따로 받는다(스펙 2026-10-03 §3.1-6). 운영 조립은 이 생성자를 쓴다. */
+	public OllamaReEngagementClient(
+			String baseUrl, String model, Duration connectTimeout, Duration readTimeout,
+			ReEngagementPromptBuilder prompts) {
+		this.restClient = RestClient.builder().baseUrl(baseUrl)
+				.requestFactory(OllamaHttp.requestFactory(connectTimeout, readTimeout)).build();
 		this.model = model;
 		this.prompts = prompts;
 	}

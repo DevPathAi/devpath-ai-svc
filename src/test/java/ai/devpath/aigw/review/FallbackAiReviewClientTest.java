@@ -9,11 +9,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.devpath.aigw.provider.FailureKind;
 import ai.devpath.aigw.provider.ProviderLatch;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClientResponseException;
@@ -108,19 +111,6 @@ class FallbackAiReviewClientTest {
   }
 
   @Test
-  void throwsTheExistingReviewExceptionWhenEveryProviderIsBlocked() {
-    // Review Focus 4: an all-open chain must surface review's own exception, not an index error.
-    ProviderLatch latch = latch();
-    latch.recordFailure("review", "claude", FailureKind.AUTH, null);
-    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
-
-    TransientReviewException thrown = assertThrows(TransientReviewException.class,
-        () -> chain(latch, new Stub("CLAUDE", null, result(1)),
-                           new Stub("OLLAMA", null, result(2))).review(INPUT));
-    assertEquals("LLM_ALL_PROVIDERS_BLOCKED", thrown.errorCode());
-  }
-
-  @Test
   void propagatesTheLastFailureWhenEveryAttemptFailed() {
     ProviderLatch latch = latch();
     RuntimeException ollamaFailure = status(503, "Service Unavailable");
@@ -152,5 +142,132 @@ class FallbackAiReviewClientTest {
     client.review(INPUT);
 
     assertEquals("OLLAMA", client.providerName());
+  }
+
+  private FallbackAiReviewClient chain(
+      ProviderLatch latch, Map<String, AiReviewClient> lastResort, Stub... stubs) {
+    LinkedHashMap<String, AiReviewClient> delegates = new LinkedHashMap<>();
+    for (Stub s : stubs) delegates.put(s.providerName().toLowerCase(Locale.ROOT), s);
+    return new FallbackAiReviewClient(delegates, lastResort, latch);
+  }
+
+  @Test
+  void usesTheFastClaudeWhileAUsableFallbackFollows() {
+    ProviderLatch latch = latch();
+    Stub fast = new Stub("CLAUDE", status(503, "Service Unavailable"), null);
+    Stub patient = new Stub("CLAUDE", null, result(9));
+    Stub ollama = new Stub("OLLAMA", null, result(4));
+
+    assertEquals(4, chain(latch, Map.of("claude", patient), fast, ollama).review(INPUT).confidence());
+    assertEquals(1, fast.calls);
+    assertEquals(0, patient.calls);
+  }
+
+  @Test
+  void usesTheLastResortClaudeWhenTheFallbackIsBlocked() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    Stub fast = new Stub("CLAUDE", null, result(1));
+    Stub patient = new Stub("CLAUDE", null, result(5));
+    Stub ollama = new Stub("OLLAMA", null, result(2));
+
+    assertEquals(5, chain(latch, Map.of("claude", patient), fast, ollama).review(INPUT).confidence());
+    assertEquals(0, fast.calls);
+    assertEquals(1, patient.calls);
+    assertEquals(0, ollama.calls);
+  }
+
+  @Test
+  void callsThePrimaryLastResortOnceWhenEveryProviderIsBlocked() {
+    // 스펙 §3.1-1 규칙 ③: 폴백을 끈 상태처럼 1순위를 부른다(예전에는 LLM_ALL_PROVIDERS_BLOCKED 로 실패).
+    ProviderLatch latch = latch();
+    latch.recordFailure("review", "claude", FailureKind.RATE_LIMIT, null);
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    Stub fast = new Stub("CLAUDE", null, result(1));
+    Stub patient = new Stub("CLAUDE", null, result(8));
+    Stub ollama = new Stub("OLLAMA", null, result(2));
+
+    assertEquals(8, chain(latch, Map.of("claude", patient), fast, ollama).review(INPUT).confidence());
+    assertEquals(1, patient.calls);
+    assertEquals(0, fast.calls);
+    assertEquals(0, ollama.calls);
+  }
+
+  @Test
+  void surfacesTheLastResortFailureWhenEveryProviderIsBlocked() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("review", "claude", FailureKind.RATE_LIMIT, null);
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    TransientReviewException failure = new TransientReviewException("LLM_RATELIMIT", "Claude 429", null);
+    Stub patient = new Stub("CLAUDE", failure, null);
+
+    RuntimeException thrown = assertThrows(RuntimeException.class,
+        () -> chain(latch, Map.of("claude", patient),
+            new Stub("CLAUDE", null, result(1)), new Stub("OLLAMA", null, result(2))).review(INPUT));
+    assertSame(failure, thrown);
+  }
+
+  @Test
+  void fallsBackToTheFastDelegateWhenNoLastResortVariantIsGiven() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    Stub claude = new Stub("CLAUDE", null, result(6));
+
+    assertEquals(6, chain(latch, claude, new Stub("OLLAMA", null, result(2))).review(INPUT).confidence());
+    assertEquals(1, claude.calls);
+  }
+
+  @Test
+  void reportsClaudeWhenTheLastResortVariantServed() {
+    // Review Focus 5: 저장·발행되는 이름은 구현체가 말하는 이름이다.
+    ProviderLatch latch = latch();
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    FallbackAiReviewClient client = chain(latch,
+        Map.of("claude", new Stub("CLAUDE", null, result(5))),
+        new Stub("CLAUDE", null, result(1)), new Stub("OLLAMA", null, result(2)));
+
+    client.review(INPUT);
+
+    assertEquals("CLAUDE", client.providerName());
+  }
+
+  /** 래치 기한을 넘겨 보기 위한 시계(최종 리뷰 I-1). */
+  private static final class MovableClock extends Clock {
+    private Instant now = Instant.parse("2026-10-01T00:00:00Z");
+
+    void advance(Duration d) { now = now.plus(d); }
+
+    @Override public ZoneOffset getZone() { return ZoneOffset.UTC; }
+    @Override public Clock withZone(ZoneId zone) { return this; }
+    @Override public Instant instant() { return now; }
+  }
+
+  @Test
+  void aFailedForcedAttemptDoesNotGrowThePrimarysBackoff() {
+    // 전부 막혀 1순위를 부르는 것은 동등성 때문이다. 그 실패를 이미 열린 래치에 다시 기록하면 사다리가
+    // 자라(5→10→…60분) Ollama 가 돌아온 뒤에도 회복된 Claude 를 그만큼 건너뛴다(최종 리뷰 I-1).
+    MovableClock clock = new MovableClock();
+    ProviderLatch latch = new ProviderLatch(clock);
+    latch.recordFailure("review", "claude", FailureKind.RATE_LIMIT, null);   // 첫 단 5분
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+    Stub patient = new Stub("CLAUDE", status(429, "Too Many Requests"), null);
+
+    assertThrows(RuntimeException.class, () -> chain(latch, Map.of("claude", patient),
+        new Stub("CLAUDE", null, result(1)), new Stub("OLLAMA", null, result(2))).review(INPUT));
+
+    clock.advance(Duration.ofMinutes(5).plusSeconds(1));
+    assertFalse(latch.isOpen("review", "claude"));
+  }
+
+  @Test
+  void aSuccessfulForcedAttemptClosesThePrimarysLatch() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("review", "claude", FailureKind.RATE_LIMIT, null);
+    latch.recordFailure("review", "ollama", FailureKind.AUTH, null);
+
+    chain(latch, Map.of("claude", new Stub("CLAUDE", null, result(1))),
+        new Stub("CLAUDE", null, result(1)), new Stub("OLLAMA", null, result(2))).review(INPUT);
+
+    assertFalse(latch.isOpen("review", "claude"));
   }
 }
