@@ -81,4 +81,30 @@ class OllamaAiReviewClientTest {
         () -> client.review(new ReviewInput("PYTHON", "x", "", "", 0)));
     assertThat(ex.errorCode()).isEqualTo("PARSE_FAILED");
   }
+
+  @Test
+  void aMissingModelIsTransientSoKafkaRetriesTheReview() {
+    // 스펙 2026-10-03 §1: 404(모델 없음)가 PARSE_FAILED 영구 실패가 되면 원래 Kafka 가 다시 시도하던 리뷰를 잃는다.
+    server.enqueue(new MockResponse().setResponseCode(404)
+        .setBody("{\"error\":\"model \\\"qwen2.5-coder:7b\\\" not found\"}"));
+    var client = new OllamaAiReviewClient(server.url("/").toString(), "qwen2.5-coder:7b",
+        Duration.ofSeconds(5), new ReviewPromptBuilder(), JsonMapper.builder().build());
+
+    TransientReviewException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        TransientReviewException.class,
+        () -> client.review(new ReviewInput("PYTHON", "x", "", "", 0)));
+    assertThat(ex.errorCode()).isEqualTo("LLM_MODEL_UNAVAILABLE");
+  }
+
+  @Test
+  void aBadRequestStaysPermanent() {
+    server.enqueue(new MockResponse().setResponseCode(400));
+    var client = new OllamaAiReviewClient(server.url("/").toString(), "qwen2.5-coder:7b",
+        Duration.ofSeconds(5), new ReviewPromptBuilder(), JsonMapper.builder().build());
+
+    PermanentReviewException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        PermanentReviewException.class,
+        () -> client.review(new ReviewInput("PYTHON", "x", "", "", 0)));
+    assertThat(ex.errorCode()).isEqualTo("PARSE_FAILED");
+  }
 }

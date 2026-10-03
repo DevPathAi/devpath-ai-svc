@@ -74,6 +74,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
       if (status >= 500) {
         throw new TransientReviewException("LLM_5XX", "Ollama " + status, e);
       }
+      if (status == 404) {
+        // 모델(또는 경로)이 없다 = 이 Ollama 를 지금 쓸 수 없다(스펙 2026-10-03 §3.1-7).
+        // 영구 실패로 끝내면 원래 Kafka 가 다시 시도하던 리뷰를 잃는다.
+        throw new TransientReviewException("LLM_MODEL_UNAVAILABLE", "Ollama 404", e);
+      }
       throw new PermanentReviewException("PARSE_FAILED", "Ollama " + status, e);
     } catch (ResourceAccessException e) { // I/O 타임아웃/커넥션
       throw new TransientReviewException("LLM_TIMEOUT", "Ollama timeout", e);
