@@ -2,6 +2,7 @@ package ai.devpath.aigw.community;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,6 +13,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.client.RestClientResponseException;
@@ -98,18 +100,6 @@ class FallbackAiSeedClientTest {
   }
 
   @Test
-  void throwsTheExistingSeedExceptionWhenEveryProviderIsBlocked() {
-    ProviderLatch latch = latch();
-    latch.recordFailure("community-seed", "claude", FailureKind.AUTH, null);
-    latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
-
-    SeedGenerationException thrown = assertThrows(SeedGenerationException.class,
-        () -> chain(latch, new Stub("CLAUDE", null, "x"), new Stub("OLLAMA", null, "y"))
-            .generate(INPUT));
-    assertEquals("LLM_ALL_PROVIDERS_BLOCKED", thrown.errorCode());
-  }
-
-  @Test
   void reportsTheProviderThatActuallyServed() {
     ProviderLatch latch = latch();
     FallbackAiSeedClient client = chain(latch,
@@ -118,5 +108,79 @@ class FallbackAiSeedClientTest {
     client.generate(INPUT);
 
     assertEquals("OLLAMA", client.providerName());
+  }
+
+  private FallbackAiSeedClient chain(
+      ProviderLatch latch, Map<String, AiSeedClient> lastResort, Stub... stubs) {
+    LinkedHashMap<String, AiSeedClient> delegates = new LinkedHashMap<>();
+    for (Stub s : stubs) delegates.put(s.providerName().toLowerCase(Locale.ROOT), s);
+    return new FallbackAiSeedClient(delegates, lastResort, latch);
+  }
+
+  @Test
+  void usesTheFastClaudeWhileAUsableFallbackFollows() {
+    ProviderLatch latch = latch();
+    Stub fast = new Stub("CLAUDE", status(503, "Service Unavailable"), null);
+    Stub patient = new Stub("CLAUDE", null, "patient");
+    Stub ollama = new Stub("OLLAMA", null, "ollama");
+
+    assertEquals("ollama",
+        chain(latch, Map.of("claude", patient), fast, ollama).generate(INPUT).content());
+    assertEquals(1, fast.calls);
+    assertEquals(0, patient.calls);
+  }
+
+  @Test
+  void usesTheLastResortClaudeWhenTheFallbackIsBlocked() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
+    Stub fast = new Stub("CLAUDE", null, "fast");
+    Stub patient = new Stub("CLAUDE", null, "patient");
+
+    assertEquals("patient", chain(latch, Map.of("claude", patient), fast,
+        new Stub("OLLAMA", null, "ollama")).generate(INPUT).content());
+    assertEquals(0, fast.calls);
+    assertEquals(1, patient.calls);
+  }
+
+  @Test
+  void callsThePrimaryLastResortOnceWhenEveryProviderIsBlocked() {
+    // 스펙 §3.1-1 규칙 ③(예전에는 LLM_ALL_PROVIDERS_BLOCKED 로 실패).
+    ProviderLatch latch = latch();
+    latch.recordFailure("community-seed", "claude", FailureKind.RATE_LIMIT, null);
+    latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
+    Stub patient = new Stub("CLAUDE", null, "patient");
+
+    assertEquals("patient", chain(latch, Map.of("claude", patient),
+        new Stub("CLAUDE", null, "fast"), new Stub("OLLAMA", null, "ollama"))
+        .generate(INPUT).content());
+    assertEquals(1, patient.calls);
+  }
+
+  @Test
+  void surfacesTheLastResortFailureWhenEveryProviderIsBlocked() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("community-seed", "claude", FailureKind.RATE_LIMIT, null);
+    latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
+    SeedGenerationException failure =
+        new SeedGenerationException("LLM_FAILED", "Claude seed 호출 실패", null);
+
+    RuntimeException thrown = assertThrows(RuntimeException.class,
+        () -> chain(latch, Map.of("claude", new Stub("CLAUDE", failure, null)),
+            new Stub("CLAUDE", null, "fast"), new Stub("OLLAMA", null, "ollama")).generate(INPUT));
+    assertSame(failure, thrown);
+  }
+
+  @Test
+  void reportsClaudeWhenTheLastResortVariantServed() {
+    ProviderLatch latch = latch();
+    latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
+    FallbackAiSeedClient client = chain(latch,
+        Map.of("claude", new Stub("CLAUDE", null, "patient")),
+        new Stub("CLAUDE", null, "fast"), new Stub("OLLAMA", null, "ollama"));
+
+    client.generate(INPUT);
+
+    assertEquals("CLAUDE", client.providerName());
   }
 }

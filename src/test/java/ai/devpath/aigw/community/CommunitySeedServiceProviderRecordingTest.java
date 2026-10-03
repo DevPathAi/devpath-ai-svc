@@ -97,7 +97,9 @@ class CommunitySeedServiceProviderRecordingTest {
     latch.recordFailure("community-seed", "ollama", FailureKind.AUTH, null);
     service.process(event(8L));
 
+    // 전부 차단이면 1순위(Claude)를 한 번 부른다(스펙 2026-10-03 §3.1-1 규칙 ③) — 그 실패가 그대로
+    // 올라오므로 코드는 LLM_FAILED 이고, 기록되는 provider 는 실제로 시도한 CLAUDE 다(직전 요청의 OLLAMA 가 아니다).
     verify(publisher).publishFailed(
-        eq(8L), eq("LLM_ALL_PROVIDERS_BLOCKED"), eq("CLAUDE"), isNull());
+        eq(8L), eq("LLM_FAILED"), eq("CLAUDE"), isNull());
   }
 }
