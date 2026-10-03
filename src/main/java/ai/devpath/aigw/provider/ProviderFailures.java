@@ -42,7 +42,14 @@ public final class ProviderFailures {
 
   private static Classified classifyOne(Throwable t) {
     if (t instanceof RestClientResponseException http) {
-      return fromStatus(http.getStatusCode().value(), retryAfter(http.getResponseHeaders()));
+      int status = http.getStatusCode().value();
+      // 이 체인에서 RestClient 를 쓰는 provider 는 Ollama 뿐이다(Claude 는 SDK 예외로 온다).
+      // Ollama 404 = 모델(또는 경로)이 없다 = 그 Ollama 를 지금 쓸 수 없다(스펙 2026-10-03 §3.1-7).
+      if (status == 404) return new Classified(FailureKind.TRANSIENT, null);
+      return fromStatus(status, retryAfter(http.getResponseHeaders()));
+    }
+    if (t instanceof OllamaModelUnavailableException) {
+      return new Classified(FailureKind.TRANSIENT, null);
     }
     if (t instanceof AnthropicServiceException sdk) {
       return fromStatus(sdk.statusCode(), sdkRetryAfter(sdk));
