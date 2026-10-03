@@ -21,6 +21,12 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  task:
+    scheduling:
+      pool:
+        # @Scheduled 3개(outbox relay 2초 · 래치 복구 탐색 · Ollama 생존 탐색)가 서로를 기다리지 않게 한다.
+        # 기본 1이면 응답 없는 Ollama 를 탐색하는 동안(최대 3×(3초+5초)) outbox 발행이 멈춘다.
+        size: 3
 
 server:
   port: 8080
