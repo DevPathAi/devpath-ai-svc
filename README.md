@@ -1,6 +1,6 @@
 # devpath-ai-svc
 
-**DevPath AI** AI 서비스 — AI Gateway, 코드 리뷰 워커, FinOps를 담당합니다.
+**레바(Leva)** AI 서비스 — AI Gateway, 코드 리뷰 워커, FinOps를 담당합니다.
 
 > **현재 구현 상태(2026-07-02)**: 로컬 개발 빌드는 Ollama gateway입니다. 실제 코드에는 `POST /ai/embed`, `POST /ai/path/generate`가 구현되어 있으며, 운영 목표는 Claude 등 외부 provider로 교체 가능한 AI Gateway입니다.
 
