@@ -1,0 +1,36 @@
+---
+name: Mission Spine Release Gate Dispatch
+
+'on':
+  push:
+    branches:
+      - automation/dispatch-ms-20261016-leva-inspection-fixes
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch protected AI release evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch AI evaluation as GitHub Actions automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/mission-spine-release-eval.yml/dispatches" \
+            --input - <<'JSON'
+          {
+            "ref": "main",
+            "inputs": {
+              "release_id": "ms-20261016-leva-inspection-fixes",
+              "candidate_spec_sha256": "a0d56c1033acae239605678a9d6af0c45b82832c65d95f90d84018f61871df7c",
+              "ai_source_sha": "cd756fbf8473499a4c7b7ae285c1686c08f525ab",
+              "gitops_source_sha": "88559c6509e50c2c7059b03fec83bf54c03077fd"
+            }
+          }
+          JSON
